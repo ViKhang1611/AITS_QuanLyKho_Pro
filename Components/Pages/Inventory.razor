@@ -1,0 +1,534 @@
+@page "/vattu"
+@rendermode InteractiveServer
+@inject WarehouseService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Vật tư - AITS Quản Lý Kho</PageTitle>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+    <input type="text" placeholder="🔍 Tìm theo tên, mã vật tư, vị trí, mã vạch..." @bind="search" @bind:event="oninput" style="min-width:280px" />
+    <select @bind="filterCat"><option value="">Tất cả danh mục</option>@foreach(var c in availableCategories){<option value="@c">@c</option>}</select>
+    <select @bind="filterStatus"><option value="">Tất cả trạng thái</option><option>Bình thường</option><option>Sắp hết</option><option>Hết hàng</option></select>
+    <button class="btn btn-outline ml-auto" @onclick="ExportCsv">📥 Xuất Excel/CSV</button>
+    <button class="btn btn-primary ml-auto" @onclick="OpenAdd">+ Thêm vật tư</button>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 16px;margin-bottom:12px;color:#1e40af;font-size:13px;display:flex;align-items:center;justify-content:space-between">
+        <span>ℹ️ @statusMessage</span>
+        <button style="border:none;background:none;cursor:pointer;font-weight:700;color:#1e40af" @onclick="()=>statusMessage=null">✖</button>
+    </div>
+}
+
+<!-- Chips -->
+<div class="chips mb-12">
+    <span class="chip chip-blue">Tổng: @all.Count</span>
+    <span class="chip chip-green">Bình thường: @all.Count(m=>m.Status=="Bình thường")</span>
+    <span class="chip chip-yellow">Sắp hết: @all.Count(m=>m.Status=="Sắp hết")</span>
+    <span class="chip chip-red">Hết hàng: @all.Count(m=>m.Status=="Hết hàng")</span>
+    <span class="chip chip-orange">⏳ Sắp hết hạn: @all.Count(m=>m.IsExpiringSoon)</span>
+</div>
+
+<!-- Table -->
+<div class="card">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Mã VT</th>
+                    <th>Tên vật tư</th>
+                    <th>Lô & Hạn SD</th>
+                    <th>Danh mục</th>
+                    <th>ĐVT</th>
+                    <th>Tồn kho</th>
+                    <th>Tồn min</th>
+                    <th>Vị trí</th>
+                    <th>Nhà CC</th>
+                    <th>Đơn giá</th>
+                    <th>Trạng thái</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!paged.Any()) { <tr><td colspan="12" class="empty-state">Không tìm thấy vật tư nào</td></tr> }
+                @foreach (var m in paged)
+                {
+                    <tr>
+                        <td class="td-code">@m.Code</td>
+                        <td class="td-bold truncate" style="max-width:180px">@m.Name</td>
+                        <td>
+                            <div class="text-xs">
+                                <b>@m.BatchNumber</b>
+                                @if (m.ExpiryDate.HasValue)
+                                {
+                                    <div class="@(m.IsExpiringSoon ? "text-red font-bold" : "text-gray")">
+                                        @(m.IsExpiringSoon ? "⏳ " : "")@m.ExpiryDate.Value.ToString("dd/MM/yyyy")
+                                    </div>
+                                }
+                            </div>
+                        </td>
+                        <td>@m.Category</td>
+                        <td>@m.Unit</td>
+                        <td class="@(m.Quantity <= m.MinQuantity ? "td-red" : "td-bold")">@m.Quantity.ToString("N0")</td>
+                        <td class="text-gray">@m.MinQuantity</td>
+                        <td class="font-mono text-gray">@m.Location</td>
+                        <td>@m.Supplier</td>
+                        <td class="td-bold">@m.Price.ToString("N0")đ</td>
+                        <td><span class="badge @BadgeClass(m.Status)">@m.Status</span></td>
+                        <td>
+                            <div class="action-btns">
+                                <button class="action-btn" @onclick="()=>OpenBarcode(m)" title="Xem Mã Vạch/QR">🏷️</button>
+                                <button class="action-btn" @onclick="()=>OpenEdit(m)" title="Sửa">✏️</button>
+                                <button class="action-btn" @onclick="()=>OpenDeleteConfirm(m.Id)" title="Xóa">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="flex justify-between items-center" style="padding:12px 16px;border-top:1px solid #f1f5f9">
+        <span class="text-xs text-gray">Hiển thị @((page-1)*perPage+1)-@Math.Min(page*perPage, filtered.Count) / @filtered.Count vật tư</span>
+        <div class="pagination">
+            @for (int i = 1; i <= Math.Min(totalPages, 8); i++) { var p = i;
+                <button class="page-btn @(p==page?"active":"")" @onclick="()=>page=p">@p</button>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal Edit / Add -->
+@if (showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal" style="max-width:650px;width:95%" @onclick:stopPropagation="true">
+            <div class="modal-title">@(editId == 0 ? "Thêm vật tư mới" : "Chỉnh sửa vật tư")</div>
+            <div class="form-row mb-12">
+                <div class="form-group"><label class="field-label">Mã vật tư</label><input type="text" @bind="form.Code" placeholder="VT-0001" /></div>
+                <div class="form-group">
+                    <label class="field-label">Danh mục (nhập hoặc chọn gợi ý)</label>
+                    <input type="text" @bind="form.Category" list="categorySuggestions" placeholder="Nhập hoặc chọn gợi ý danh mục..." />
+                    <datalist id="categorySuggestions">
+                        @foreach (var c in availableCategories)
+                        {
+                            <option value="@c"></option>
+                        }
+                    </datalist>
+                </div>
+            </div>
+            <div class="form-group mb-12"><label class="field-label">Tên vật tư</label><input type="text" @bind="form.Name" placeholder="Tên vật tư" /></div>
+            <div class="form-row mb-12">
+                <div class="form-group"><label class="field-label">Số Lô sản xuất</label><input type="text" @bind="form.BatchNumber" placeholder="LÔ-2026-01" /></div>
+                <div class="form-group"><label class="field-label">Hạn sử dụng</label><input type="date" @bind="form.ExpiryDate" /></div>
+            </div>
+            <div class="form-row mb-12">
+                <div class="form-group"><label class="field-label">Đơn vị tính</label><input type="text" @bind="form.Unit" placeholder="Cái / Cuộn..." /></div>
+                <div class="form-group"><label class="field-label">Đơn giá (đ)</label><input type="number" @bind="form.Price" /></div>
+            </div>
+            <div class="form-row mb-12">
+                <div class="form-group"><label class="field-label">Số lượng tồn</label><input type="number" @bind="form.Quantity" /></div>
+                <div class="form-group"><label class="field-label">Tồn kho tối thiểu</label><input type="number" @bind="form.MinQuantity" /></div>
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label" style="font-weight:700;color:#2563eb">📍 Vị trí kho: Khu vực → Kệ → Tầng → Ô</label>
+                <div class="flex gap-8">
+                    <select value="@selZoneId" @onchange="OnZoneChanged" style="flex:1" title="Khu vực">
+                        <option value="0">-- Chọn Khu --</option>
+                        @foreach (var z in zones)
+                        {
+                            <option value="@z.Id">Khu @z.Code - @z.Name</option>
+                        }
+                    </select>
+                    <select value="@selRackId" @onchange="OnRackChanged" style="flex:1" disabled="@(selZoneId == 0)" title="Kệ">
+                        <option value="0">-- Kệ --</option>
+                        @foreach (var r in GetRacksForZone(selZoneId))
+                        {
+                            <option value="@r.Id">Kệ @r.Code</option>
+                        }
+                    </select>
+                    <select value="@selShelfId" @onchange="OnShelfChanged" style="flex:1" disabled="@(selRackId == 0)" title="Tầng">
+                        <option value="0">-- Tầng --</option>
+                        @foreach (var s in GetShelvesForRack(selRackId))
+                        {
+                            <option value="@s.Id">Tầng @s.Level</option>
+                        }
+                    </select>
+                    <select value="@selCellId" @onchange="OnCellChanged" style="flex:1.2" disabled="@(selShelfId == 0)" title="Ô">
+                        <option value="0">-- Ô --</option>
+                        @foreach (var c in GetCellsForShelf(selShelfId))
+                        {
+                            <option value="@c.Id">Ô @c.Position @(c.IsOccupied ? $" ({c.MaterialName})" : " (Trống)")</option>
+                        }
+                    </select>
+                </div>
+                @if (!string.IsNullOrEmpty(form.Location))
+                {
+                    <div class="text-xs text-gray mt-4">Vị trí lưu: <b style="color:#0284c7">@form.Location</b></div>
+                }
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label">Nhà cung cấp (nhập hoặc chọn gợi ý từ trang Nhà cung cấp)</label>
+                <input type="text" @bind="form.Supplier" list="supplierSuggestions" placeholder="Nhập hoặc chọn gợi ý nhà cung cấp..." />
+                <datalist id="supplierSuggestions">
+                    @foreach (var s in availableSuppliers)
+                    {
+                        <option value="@s"></option>
+                    }
+                </datalist>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseModal">Hủy</button>
+                <button class="btn btn-primary" @onclick="Save">@(editId == 0 ? "Thêm vật tư" : "Lưu thay đổi")</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal Barcode Card -->
+@if (showBarcodeModal && barcodeMat != null)
+{
+    <div class="modal-overlay" @onclick="CloseBarcode">
+        <div class="modal text-center" style="max-width:400px" @onclick:stopPropagation="true">
+            <div class="modal-title mb-8">🏷️ Mã Vạch & QR Code Vật Tư</div>
+            <div class="card p-16" style="background:#f8fafc;border:2px dashed #cbd5e1">
+                <div style="font-size:18px;font-weight:700;color:#0284c7">@barcodeMat.Code</div>
+                <div style="font-size:14px;font-weight:600;margin-bottom:8px">@barcodeMat.Name</div>
+                <div style="font-family:monospace;letter-spacing:4px;font-size:22px;background:#000;color:#fff;padding:8px 12px;border-radius:4px;display:inline-block;margin:10px 0">
+                    |||| | |||| ||| |||
+                </div>
+                <div class="text-xs text-gray">Mã Barcode: @(string.IsNullOrEmpty(barcodeMat.Barcode)? barcodeMat.Code : barcodeMat.Barcode)</div>
+                <div class="text-xs text-gray mt-4">Số Lô: <b>@barcodeMat.BatchNumber</b> - Vị trí: <b>@barcodeMat.Location</b></div>
+            </div>
+            <div class="modal-footer justify-between mt-16">
+                <button class="btn btn-outline" @onclick="CloseBarcode">Đóng</button>
+                <button class="btn btn-blue" @onclick="PrintBarcode">🖨️ In Thẻ Mã Vạch</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal Xác nhận Xóa vật tư -->
+@if (showDeleteConfirmModal)
+{
+    <div class="modal-overlay" @onclick="CloseDeleteConfirm">
+        <div class="modal text-center" style="max-width:420px" @onclick:stopPropagation="true">
+            <div class="modal-title text-red" style="font-size:18px">🗑️ Xác nhận xóa vật tư</div>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;margin:12px 0;color:#991b1b;font-size:13px">
+                Bạn có chắc muốn xóa vật tư @deleteConfirmMsg? Thao tác này không thể hoàn tác.
+            </div>
+            <div class="modal-footer justify-between">
+                <button class="btn btn-outline" @onclick="CloseDeleteConfirm">Hủy</button>
+                <button class="btn" style="background:#dc2626;color:#fff" @onclick="()=>Delete(deleteConfirmId)">Xác nhận xóa</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    List<Material> all = [];
+    List<StorageZone> zones = [];
+    string search = "", filterCat = "", filterStatus = "";
+    int page = 1, perPage = 10, editId = 0;
+    bool showModal;
+    bool showBarcodeModal;
+    Material? barcodeMat;
+    Material form = new();
+    string? statusMessage;
+
+    int selZoneId = 0;
+    int selRackId = 0;
+    int selShelfId = 0;
+    int selCellId = 0;
+
+    List<SupplierModel> dbSuppliers = [];
+    static readonly string[] cats = ["Vật liệu xây dựng","Vật tư điện","Vật tư cơ khí","Phụ kiện","Vật liệu hoàn thiện","Hóa chất"];
+    List<string> availableCategories => all.Select(m => m.Category).Where(c => !string.IsNullOrEmpty(c)).Concat(cats).Distinct().OrderBy(x => x).ToList();
+    List<string> availableSuppliers => all.Select(m => m.Supplier)
+        .Concat(dbSuppliers.Select(s => s.Name))
+        .Where(s => !string.IsNullOrWhiteSpace(s))
+        .Distinct()
+        .OrderBy(x => x)
+        .ToList();
+
+    List<Material> filtered => all.Where(m =>
+        (string.IsNullOrEmpty(search) || m.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || m.Code.Contains(search, StringComparison.OrdinalIgnoreCase) || m.Location.Contains(search, StringComparison.OrdinalIgnoreCase) || m.BatchNumber.Contains(search, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrEmpty(filterCat) || m.Category == filterCat) &&
+        (string.IsNullOrEmpty(filterStatus) || m.Status == filterStatus)
+    ).ToList();
+    List<Material> paged => filtered.Skip((page - 1) * perPage).Take(perPage).ToList();
+    int totalPages => (int)Math.Ceiling(filtered.Count / (double)perPage);
+
+    static string BadgeClass(string s) => s switch { "Bình thường" => "badge-green", "Sắp hết" => "badge-yellow", _ => "badge-red" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        all = await Svc.GetMaterialsAsync();
+        zones = await Svc.GetZonesAsync();
+        dbSuppliers = await Svc.GetSuppliersAsync();
+    }
+
+    List<StorageRack> GetRacksForZone(int zoneId)
+    {
+        if (zoneId <= 0) return [];
+        var z = zones.FirstOrDefault(x => x.Id == zoneId);
+        return z?.Racks ?? [];
+    }
+
+    List<StorageShelf> GetShelvesForRack(int rackId)
+    {
+        if (rackId <= 0) return [];
+        foreach (var z in zones)
+        {
+            var rack = z.Racks?.FirstOrDefault(r => r.Id == rackId);
+            if (rack != null) return rack.Shelves ?? [];
+        }
+        return [];
+    }
+
+    List<StorageCell> GetCellsForShelf(int shelfId)
+    {
+        if (shelfId <= 0) return [];
+        foreach (var z in zones)
+        {
+            foreach (var r in z.Racks ?? [])
+            {
+                var shelf = r.Shelves?.FirstOrDefault(s => s.Id == shelfId);
+                if (shelf != null) return shelf.Cells ?? [];
+            }
+        }
+        return [];
+    }
+
+    void OnZoneChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            selZoneId = id;
+            selRackId = 0;
+            selShelfId = 0;
+            selCellId = 0;
+            UpdateLocationString();
+        }
+    }
+
+    void OnRackChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            selRackId = id;
+            selShelfId = 0;
+            selCellId = 0;
+            UpdateLocationString();
+        }
+    }
+
+    void OnShelfChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            selShelfId = id;
+            selCellId = 0;
+            UpdateLocationString();
+        }
+    }
+
+    void OnCellChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            selCellId = id;
+            UpdateLocationString();
+        }
+    }
+
+    void UpdateLocationString()
+    {
+        var z = zones.FirstOrDefault(x => x.Id == selZoneId);
+        if (z == null) return;
+
+        var r = z.Racks?.FirstOrDefault(x => x.Id == selRackId);
+        var s = r?.Shelves?.FirstOrDefault(x => x.Id == selShelfId);
+        var c = s?.Cells?.FirstOrDefault(x => x.Id == selCellId);
+
+        if (z != null && r != null && s != null && c != null)
+        {
+            form.Location = $"{z.Code} > {r.Code} > {s.Level} > {c.Position}";
+        }
+        else if (z != null && r != null && s != null)
+        {
+            form.Location = $"{z.Code} > {r.Code} > {s.Level}";
+        }
+        else if (z != null && r != null)
+        {
+            form.Location = $"{z.Code} > {r.Code}";
+        }
+        else if (z != null)
+        {
+            form.Location = $"Khu {z.Code}";
+        }
+    }
+
+    void OpenAdd()
+    {
+        form = new Material
+        {
+            Code = $"VT-{(all.Count + 1):D4}",
+            ExpiryDate = DateTime.Now.AddMonths(12),
+            Category = cats[0],
+            Unit = "Cái",
+            Quantity = 10,
+            MinQuantity = 5
+        };
+        editId = 0;
+        selZoneId = 0; selRackId = 0; selShelfId = 0; selCellId = 0;
+        showModal = true;
+    }
+
+    void OpenEdit(Material m)
+    {
+        form = new Material
+        {
+            Id = m.Id, Code = m.Code, Name = m.Name, Category = m.Category,
+            Unit = m.Unit, Quantity = m.Quantity, MinQuantity = m.MinQuantity,
+            Location = m.Location, Supplier = m.Supplier, Price = m.Price,
+            BatchNumber = m.BatchNumber, ExpiryDate = m.ExpiryDate, Barcode = m.Barcode
+        };
+        editId = m.Id;
+        selZoneId = 0; selRackId = 0; selShelfId = 0; selCellId = 0;
+
+        if (!string.IsNullOrEmpty(m.Location))
+        {
+            foreach (var zone in zones)
+            {
+                foreach (var rack in zone.Racks ?? [])
+                {
+                    foreach (var shelf in rack.Shelves ?? [])
+                    {
+                        foreach (var cell in shelf.Cells ?? [])
+                        {
+                            var locStr = $"{zone.Code} > {rack.Code} > {shelf.Level} > {cell.Position}";
+                            if (m.Location == locStr || cell.MaterialId == m.Id)
+                            {
+                                selZoneId = zone.Id; selRackId = rack.Id; selShelfId = shelf.Id; selCellId = cell.Id;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        showModal = true;
+    }
+
+    void CloseModal() { showModal = false; }
+
+    void OpenBarcode(Material m)
+    {
+        barcodeMat = m;
+        showBarcodeModal = true;
+    }
+    void CloseBarcode() { showBarcodeModal = false; barcodeMat = null; }
+
+    async Task Save()
+    {
+        if (editId == 0)
+        {
+            // Tạo mới vật tư: Số lượng ban đầu = 0, phải chờ duyệt phiếu nhập kho mới thực sự nhập vào kho
+            int importQty = form.Quantity > 0 ? form.Quantity : 10;
+            form.Quantity = 0;
+
+            await Svc.AddMaterialAsync(form);
+
+            var importTx = new Transaction
+            {
+                Type = "Nhập kho",
+                Date = DateTime.Now,
+                Warehouse = string.IsNullOrEmpty(form.Location) ? "Kho A" : form.Location,
+                User = Svc.CurrentUser,
+                Note = $"Khởi tạo vật tư mới & Đăng ký nhập kho: {form.Code} - {form.Name}",
+                Status = "Chờ duyệt",
+                Items = [
+                    new TransactionItem
+                    {
+                        MaterialId = form.Id,
+                        MaterialCode = form.Code,
+                        MaterialName = form.Name,
+                        Unit = form.Unit,
+                        Quantity = importQty,
+                        UnitPrice = form.Price,
+                        BatchNumber = form.BatchNumber,
+                        ExpiryDate = form.ExpiryDate,
+                        TargetCellId = selCellId > 0 ? selCellId : null,
+                        TargetCellLocation = form.Location
+                    }
+                ]
+            };
+
+            await Svc.AddTransactionAsync(importTx);
+            statusMessage = $"Đã đăng ký vật tư '{form.Name}' và tự động lập Phiếu Nhập Kho (Chờ Thủ kho duyệt để chính thức nhập tồn kho & lưu vị trí).";
+        }
+        else
+        {
+            form.Id = editId;
+            await Svc.UpdateMaterialAsync(form);
+
+            if (selCellId > 0 && form.Id > 0)
+            {
+                await Svc.AssignMaterialToCellAsync(form.Id, selCellId, form.Location);
+            }
+
+            statusMessage = $"Đã cập nhật thông tin vật tư '{form.Name}'.";
+        }
+
+        all = await Svc.GetMaterialsAsync();
+        CloseModal();
+    }
+
+    async Task Delete(int id)
+    {
+        await Svc.DeleteMaterialAsync(id);
+        all = await Svc.GetMaterialsAsync();
+        CloseDeleteConfirm();
+    }
+
+    // Delete confirm modal
+    bool showDeleteConfirmModal;
+    int deleteConfirmId;
+    string deleteConfirmMsg = "";
+
+    void OpenDeleteConfirm(int id)
+    {
+        deleteConfirmId = id;
+        var mat = all.FirstOrDefault(m => m.Id == id);
+        deleteConfirmMsg = mat != null ? $"\"{mat.Code} - {mat.Name}\"" : "vật tư này";
+        showDeleteConfirmModal = true;
+    }
+
+    void CloseDeleteConfirm() { showDeleteConfirmModal = false; }
+
+    async Task PrintBarcode()
+    {
+        if (barcodeMat == null) return;
+        var html = $"<div style='text-align:center;padding:20px;font-family:sans-serif;border:2px solid #000'>" +
+            $"<h2>{barcodeMat.Code} - {barcodeMat.Name}</h2>" +
+            $"<div style='font-size:32px;font-family:monospace;letter-spacing:6px;margin:15px 0'>|||| ||| |||| || |||</div>" +
+            $"<div>Số Lô: {barcodeMat.BatchNumber} | Vị trí: {barcodeMat.Location}</div>" +
+            $"</div>";
+        await JS.InvokeVoidAsync("appJs.printSlip", html);
+    }
+
+    async Task ExportCsv()
+    {
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine("Mã VT,Tên Vật Tư,Số Lô,Hạn SD,Danh Mục,ĐVT,Tồn Kho,Tồn Min,Vị Trí,Nhà Cung Cấp,Đơn Giá (đ),Trạng Thái");
+        foreach (var m in filtered)
+        {
+            csv.AppendLine($"\"{m.Code}\",\"{m.Name}\",\"{m.BatchNumber}\",\"{m.ExpiryDate:dd/MM/yyyy}\",\"{m.Category}\",\"{m.Unit}\",{m.Quantity},{m.MinQuantity},\"{m.Location}\",\"{m.Supplier}\",{m.Price},\"{m.Status}\"");
+        }
+        var bytes = System.Text.Encoding.UTF8.GetBytes(csv.ToString());
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,%EF%BB%BF' + encodeURIComponent(`{csv.ToString()}`); a.download = 'BaoCao_TonKho_AITS.csv'; a.click();");
+    }
+}

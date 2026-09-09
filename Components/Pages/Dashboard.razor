@@ -1,0 +1,529 @@
+@page "/"
+@rendermode InteractiveServer
+@inject WarehouseService Svc
+@inject IJSRuntime JS
+@using VatTuPro.Services
+@using VatTuPro.Models
+@implements IDisposable
+
+<PageTitle>Dashboard - AITS Quản Lý Kho</PageTitle>
+
+<style>
+/* ── 3D Dashboard Styles ────────────────────────────────────────── */
+.dash-3d-card {
+    background: #0b0f17;
+    border: 1px solid #1e293b;
+    border-radius: 16px;
+    padding: 20px;
+    color: #f8fafc;
+    box-shadow: 0 20px 45px rgba(0,0,0,0.35);
+    margin-bottom: 24px;
+}
+.dash-3d-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.dash-3d-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #f8fafc;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.dash-3d-subtitle {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 2px;
+}
+.dash-3d-filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.dash-filter-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 99px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.dash-filter-btn:hover {
+    background: #334155;
+    color: #fff;
+}
+.dash-filter-btn.active {
+    background: #2563eb;
+    color: #fff;
+    border-color: #3b82f6;
+    box-shadow: 0 4px 12px rgba(37,99,235,0.4);
+}
+.dash-3d-body {
+    display: flex;
+    gap: 20px;
+    align-items: stretch;
+}
+.dash-3d-viewport {
+    flex: 1;
+    min-height: 520px;
+    height: 520px;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    background: #070a0f;
+    border: 1px solid #1c2432;
+}
+.dash-3d-sidebar {
+    width: 320px;
+    background: #131a26;
+    border: 1px solid #232c3d;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.bin-detail-header {
+    border-bottom: 1px solid #232c3d;
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+}
+.bin-loc-code {
+    font-size: 18px;
+    font-weight: 900;
+    color: #38bdf8;
+    font-family: monospace;
+}
+.bin-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 700;
+}
+.badge-full { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+.badge-low { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+.badge-critical { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+.badge-empty { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 12px;
+    border-bottom: 1px dashed #1e293b;
+}
+.detail-label { color: #94a3b8; }
+.detail-val { color: #f1f5f9; font-weight: 600; text-align: right; }
+
+.dash-hint {
+    position: absolute;
+    bottom: 12px;
+    left: 14px;
+    background: rgba(15,23,42,0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #94a3b8;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 11px;
+    pointer-events: none;
+}
+</style>
+
+<div class="page-header">
+    <h1 class="page-title">📊 Dashboard Tổng Quan & Sơ Đồ Kho 3D</h1>
+    <span class="text-gray text-xs">Cập nhật trực tiếp: Ngày @DateTime.Now.ToString("dd/MM/yyyy HH:mm")</span>
+</div>
+
+@if (stats == null)
+{
+    <p class="text-gray">Đang khởi tạo dữ liệu kho...</p>
+}
+else
+{
+    <!-- Stats Top KPI -->
+    <div class="grid grid-4 mb-16">
+        <div class="stat-card">
+            <div>
+                <div class="stat-label">Tổng vật tư</div>
+                <div class="stat-value">@stats.TotalMaterials</div>
+                <div class="stat-sub">@stats.TotalMaterials loại đang quản lý</div>
+            </div>
+            <div class="stat-icon icon-blue">📦</div>
+        </div>
+        <div class="stat-card">
+            <div>
+                <div class="stat-label">Nhập kho hôm nay</div>
+                <div class="stat-value">@stats.TodayImport</div>
+                <div class="stat-sub">Phiếu nhập</div>
+            </div>
+            <div class="stat-icon icon-green">📈</div>
+        </div>
+        <div class="stat-card">
+            <div>
+                <div class="stat-label">Xuất kho hôm nay</div>
+                <div class="stat-value">@stats.TodayExport</div>
+                <div class="stat-sub">Phiếu xuất</div>
+            </div>
+            <div class="stat-icon icon-orange">📉</div>
+        </div>
+        <div class="stat-card">
+            <div>
+                <div class="stat-label">Sắp hết / Cảnh báo</div>
+                <div class="stat-value">@stats.LowStockCount</div>
+                <div class="stat-sub">Cần chú ý nhập hàng</div>
+            </div>
+            <div class="stat-icon icon-red">⚠️</div>
+        </div>
+    </div>
+
+    <!-- 3D Warehouse Visualization Section -->
+    <div class="dash-3d-card">
+        <div class="dash-3d-header">
+            <div>
+                <div class="dash-3d-title">
+                    <span>🏬 Sơ Đồ Kho 3D Tập Trung</span>
+                    <span style="font-size:11px;background:#0284c7;color:#fff;padding:2px 8px;border-radius:99px;font-weight:700">Real-time WebGL</span>
+                </div>
+                <div class="dash-3d-subtitle">Quản lý không gian 3D trực quan theo Khu vực → Kệ → Tầng → Ô chứa</div>
+            </div>
+            <div class="dash-3d-filters">
+                <button class="dash-filter-btn @(activeFilter == "all" ? "active" : "")" @onclick='() => SetFilter("all")'>
+                    🌐 Tất cả (@binData.Count)
+                </button>
+                <button class="dash-filter-btn @(activeFilter == "empty" ? "active" : "")" @onclick='() => SetFilter("empty")'>
+                    ⬜ Ô trống (@binData.Count(b => b.Status == "empty" || string.IsNullOrEmpty(b.MaterialName)))
+                </button>
+                <button class="dash-filter-btn @(activeFilter == "expiring" ? "active" : "")" @onclick='() => SetFilter("expiring")'>
+                    🔴 Cảnh báo hết hạn (@binData.Count(b => b.IsExpiring))
+                </button>
+            </div>
+        </div>
+
+        <div class="dash-3d-body">
+            <!-- 3D Canvas Viewport -->
+            <div class="dash-3d-viewport">
+                <div id="warehouse-3d-canvas" style="width:100%;height:100%"></div>
+                <div class="dash-hint">
+                    💡 <b>Thao tác:</b> Kéo chuột trái để xoay • Cuộn chuột để zoom • Kéo chuột phải để di chuyển • Click vào ô 3D để xem thông tin
+                </div>
+            </div>
+
+            <!-- Bin Detail Sidebar -->
+            <div class="dash-3d-sidebar">
+                @if (selectedBin != null)
+                {
+                    <div>
+                        <div class="bin-detail-header">
+                            <div class="flex justify-between items-center mb-4">
+                                <span class="bin-loc-code">@selectedBin.Id</span>
+                                @if (selectedBin.IsExpiring)
+                                {
+                                    <span class="bin-badge badge-critical">🔴 Cảnh báo hết hạn</span>
+                                }
+                                else
+                                {
+                                    <span class="bin-badge" style="background:@(selectedBin.ZoneColor)30;color:@selectedBin.ZoneColor;border:1px solid @(selectedBin.ZoneColor)60">
+                                        Khu @selectedBin.ZoneCode
+                                    </span>
+                                }
+                            </div>
+                            <div style="font-size:15px;font-weight:700;color:#f8fafc;margin-bottom:2px">
+                                @(selectedBin.Materials.Count > 1 ? $"📦 Ô chứa ({selectedBin.Materials.Count} vật tư)" : (string.IsNullOrEmpty(selectedBin.MaterialName) ? "Ô kho chưa gán vật tư" : selectedBin.MaterialName))
+                            </div>
+                            <div style="font-size:12px;color:#38bdf8;font-family:monospace">
+                                Vị trí: @selectedBin.Location
+                            </div>
+                        </div>
+
+                        @if (selectedBin.Materials.Any())
+                        {
+                            <div style="max-height:340px;overflow-y:auto;padding-right:4px">
+                                @foreach (var m in selectedBin.Materials)
+                                {
+                                    <div style="background:#131d2c;border:1px solid #233248;border-radius:10px;padding:12px;margin-bottom:10px">
+                                        <div style="font-size:14px;font-weight:700;color:#60a5fa;margin-bottom:6px">
+                                            📦 @m.MaterialName
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Mã SKU:</span>
+                                            <span class="detail-val font-mono">@m.MaterialCode</span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Số lượng tồn:</span>
+                                            <span class="detail-val" style="color:#38bdf8;font-weight:700">@m.Quantity.ToString("N0") @m.Unit</span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Ngưỡng tối thiểu:</span>
+                                            <span class="detail-val">@m.MinQuantity.ToString("N0") @m.Unit</span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Đơn giá:</span>
+                                            <span class="detail-val">@m.Price.ToString("N0") đ</span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Mã lô hàng:</span>
+                                            <span class="detail-val font-mono">@(string.IsNullOrEmpty(m.BatchNumber) ? "-" : m.BatchNumber)</span>
+                                        </div>
+                                        <div class="detail-row">
+                                            <span class="detail-label">Hạn sử dụng:</span>
+                                            <span class="detail-val @(m.IsExpiringSoon ? "text-red" : "")">
+                                                @(m.ExpiryDate.HasValue ? m.ExpiryDate.Value.ToString("dd/MM/yyyy") : "-")
+                                            </span>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else if (!string.IsNullOrEmpty(selectedBin.MaterialName))
+                        {
+                            <div class="detail-row">
+                                <span class="detail-label">Mã SKU:</span>
+                                <span class="detail-val font-mono">@selectedBin.MaterialCode</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Số lượng tồn:</span>
+                                <span class="detail-val" style="color:#38bdf8">@selectedBin.Quantity @selectedBin.Unit</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Ngưỡng tối thiểu:</span>
+                                <span class="detail-val">@selectedBin.MinQuantity @selectedBin.Unit</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Đơn giá:</span>
+                                <span class="detail-val">@selectedBin.Price.ToString("N0") đ</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Mã lô hàng:</span>
+                                <span class="detail-val font-mono">@(string.IsNullOrEmpty(selectedBin.BatchNumber) ? "-" : selectedBin.BatchNumber)</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Hạn sử dụng:</span>
+                                <span class="detail-val @(selectedBin.IsExpiring ? "text-red" : "")">
+                                    @(selectedBin.ExpiryDate.HasValue ? selectedBin.ExpiryDate.Value.ToString("dd/MM/yyyy") : "-")
+                                </span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div style="background:#1e293b;border-radius:8px;padding:16px;text-align:center;color:#94a3b8;font-size:12px;margin-top:12px">
+                                Ô kho này hiện đang trống. Bạn có thể lập phiếu nhập hoặc chuyển kho vật tư vào ô này.
+                            </div>
+                        }
+                    </div>
+
+                    <div style="margin-top:20px;display:flex;gap:8px">
+                        <a href="/danhmuc" class="btn btn-blue text-xs flex-1 text-center" style="padding:8px">
+                            🗺️ Xem sơ đồ kho
+                        </a>
+                        <a href="/giaodich" class="btn btn-green text-xs flex-1 text-center" style="padding:8px">
+                            🔄 Lập phiếu chuyển
+                        </a>
+                    </div>
+                }
+                else
+                {
+                    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;color:#64748b">
+                        <div style="font-size:42px;margin-bottom:12px;opacity:0.6">📦</div>
+                        <div style="font-size:14px;font-weight:700;color:#cbd5e1;margin-bottom:4px">Chưa chọn Ô kho</div>
+                        <div style="font-size:12px">Click vào bất kỳ khối 3D nào trên mô hình để xem thông tin chi tiết vật tư</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- 3 Info panels -->
+    <div class="grid grid-3 mb-16">
+        <!-- Low stock -->
+        <div class="card">
+            <div class="card-header">
+                <span class="text-red">⚠️ Vật tư cần chú ý</span>
+            </div>
+            <div class="card-body">
+                @if (!stats.LowStockItems.Any())
+                {
+                    <p class="text-gray text-xs">Tất cả vật tư đủ số lượng ✅</p>
+                }
+                @foreach (var m in stats.LowStockItems)
+                {
+                    <div class="mb-12">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <div class="text-sm font-bold">@m.Name</div>
+                                <div class="text-xs text-gray">@m.Code</div>
+                            </div>
+                            <span class="badge @(m.Status == "Hết hàng" ? "badge-red" : "badge-yellow")">@m.Quantity / @m.MinQuantity</span>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-bar @(m.Status == "Hết hàng" ? "progress-red" : "progress-orange")"
+                                 style="width: @(Math.Min((double)m.Quantity / m.MinQuantity * 100, 100))%"></div>
+                        </div>
+                    </div>
+                }
+                <a href="/vattu" class="text-blue text-xs">Xem tất cả vật tư →</a>
+            </div>
+        </div>
+
+        <!-- Recent activities -->
+        <div class="card">
+            <div class="card-header">Hoạt động gần đây</div>
+            <div class="card-body">
+                @foreach (var t in stats.RecentTransactions)
+                {
+                    <div class="flex items-start gap-8 mb-12">
+                        <div style="width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0;background:@(t.Type=="Nhập kho"?"#22c55e":"#fb923c")"></div>
+                        <div class="flex-1">
+                            <div class="text-sm font-bold truncate">@t.Note</div>
+                            <div class="text-xs text-gray">@t.Type • @t.ItemCount loại VT</div>
+                            <div class="text-xs text-gray">@t.Date.ToString("HH:mm") • @t.User</div>
+                        </div>
+                    </div>
+                }
+                <a href="/giaodich" class="text-blue text-xs">Xem tất cả giao dịch →</a>
+            </div>
+        </div>
+
+        <!-- Stock value -->
+        <div class="card">
+            <div class="card-header">Tổng quan giá trị</div>
+            <div class="card-body">
+                <div class="mb-12">
+                    <div class="text-xs text-gray mb-4">Giá trị tồn kho</div>
+                    <div style="font-size:20px;font-weight:700;color:#7c3aed">₫ @((stats.StockValue / 1_000_000_000m).ToString("F2")) tỷ</div>
+                </div>
+                <div class="mb-12">
+                    <div class="text-xs text-gray mb-4">Tổng nhập</div>
+                    <div style="font-size:16px;font-weight:700;color:#16a34a">₫ @((stats.TotalImportValue / 1_000_000m).ToString("F1"))M</div>
+                </div>
+                <div>
+                    <div class="text-xs text-gray mb-4">Tổng xuất</div>
+                    <div style="font-size:16px;font-weight:700;color:#ea580c">₫ @((stats.TotalExportValue / 1_000_000m).ToString("F1"))M</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bar chart -->
+    <div class="card">
+        <div class="card-header">
+            <span>Biểu đồ nhập/xuất kho (6 tháng)</span>
+            <div class="flex gap-12 text-xs text-gray">
+                <span><span style="display:inline-block;width:12px;height:12px;background:#4ade80;border-radius:2px;margin-right:4px;vertical-align:middle"></span>Nhập kho</span>
+                <span><span style="display:inline-block;width:12px;height:12px;background:#fb923c;border-radius:2px;margin-right:4px;vertical-align:middle"></span>Xuất kho</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="bar-chart">
+                @foreach (var d in monthlyData)
+                {
+                    <div class="bar-group">
+                        <div class="bars">
+                            <div class="bar bar-import" style="height:@(d.Import * 100 / maxVal)%" title="Nhập: @d.Import"></div>
+                            <div class="bar bar-export" style="height:@(d.Export * 100 / maxVal)%" title="Xuất: @d.Export"></div>
+                        </div>
+                        <div class="bar-label">@d.Month</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    DashboardStats? stats;
+    List<Bin3DModel> binData = [];
+    Bin3DModel? selectedBin;
+    string activeFilter = "all";
+    DotNetObjectReference<Dashboard>? dotNetHelper;
+    bool is3DInitialized = false;
+
+    record MonthData(string Month, int Import, int Export);
+    List<MonthData> monthlyData = [
+        new("T10", 320, 180), new("T11", 410, 220), new("T12", 280, 160),
+        new("T1", 390, 240), new("T2", 360, 190), new("T3", 520, 310),
+    ];
+    int maxVal => monthlyData.Max(d => Math.Max(d.Import, d.Export));
+
+    protected override async Task OnInitializedAsync()
+    {
+        stats = await Svc.GetDashboardStatsAsync();
+        binData = await Svc.Get3DWarehouseDataAsync();
+        if (binData.Any())
+        {
+            selectedBin = binData.FirstOrDefault(b => b.Status != "empty") ?? binData.FirstOrDefault();
+        }
+        Svc.OnDataChanged += HandleDataChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetHelper = DotNetObjectReference.Create(this);
+            await Render3D();
+        }
+    }
+
+    private async Task Render3D()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("Warehouse3D.init", "warehouse-3d-canvas", binData, dotNetHelper, activeFilter);
+            is3DInitialized = true;
+        }
+        catch { /* Bỏ qua nếu JS chưa sẵn sàng */ }
+    }
+
+    private async Task SetFilter(string filter)
+    {
+        activeFilter = filter;
+        if (is3DInitialized)
+        {
+            await JS.InvokeVoidAsync("Warehouse3D.setFilter", "warehouse-3d-canvas", activeFilter);
+        }
+    }
+
+    [JSInvokable]
+    public void OnBinSelected(Bin3DModel bin)
+    {
+        selectedBin = bin;
+        StateHasChanged();
+    }
+
+    private async Task HandleDataChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            stats = await Svc.GetDashboardStatsAsync();
+            binData = await Svc.Get3DWarehouseDataAsync();
+            if (selectedBin != null)
+            {
+                selectedBin = binData.FirstOrDefault(b => b.CellId == selectedBin.CellId) ?? selectedBin;
+            }
+            StateHasChanged();
+            if (is3DInitialized)
+            {
+                await Render3D();
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        Svc.OnDataChanged -= HandleDataChanged;
+        dotNetHelper?.Dispose();
+    }
+}

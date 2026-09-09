@@ -1,0 +1,116 @@
+@page "/login"
+@rendermode InteractiveServer
+@inject WarehouseService Svc
+@inject NavigationManager Nav
+
+<PageTitle>Đăng nhập Thủ Kho - AITS Quản Lý Kho</PageTitle>
+
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;
+            background:linear-gradient(135deg,#0f172a 0%,#1e293b 55%,#0c4a6e 100%);
+            padding:20px;box-sizing:border-box">
+
+    <div style="width:100%;max-width:400px">
+
+        <!-- Back to home -->
+        <div style="text-align:center;margin-bottom:20px">
+            <a href="/" style="color:#94a3b8;font-size:13px;text-decoration:none;
+                               display:inline-flex;align-items:center;gap:6px;
+                               padding:7px 16px;border-radius:8px;
+                               border:1px solid rgba(148,163,184,0.25);
+                               background:rgba(255,255,255,0.05)">
+                ← Quay về trang chủ (xem không cần đăng nhập)
+            </a>
+        </div>
+
+        <!-- Card -->
+        <div style="background:rgba(255,255,255,0.97);border-radius:18px;
+                    padding:36px 32px;box-shadow:0 25px 60px rgba(0,0,0,0.4);
+                    border:1px solid rgba(255,255,255,0.2)">
+
+            <!-- Header -->
+            <div style="text-align:center;margin-bottom:28px">
+                <img src="Logo.png" alt="AITS Logo"
+                     style="height:64px;width:auto;object-fit:contain;margin:0 auto 12px;display:block" />
+                <h1 style="font-size:20px;font-weight:800;color:#0f172a;margin:0">
+                    ĐĂNG NHẬP THỦ KHO
+                </h1>
+                <p style="font-size:12px;color:#64748b;margin:6px 0 0">
+                    Dành cho <strong>Thủ Kho</strong> — duyệt phiếu &amp; cập nhật dữ liệu
+                </p>
+            </div>
+
+            <!-- Info banner -->
+            <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+                        padding:11px 14px;margin-bottom:20px;font-size:12px;color:#1e40af;
+                        display:flex;align-items:flex-start;gap:8px">
+                <span style="font-size:16px;flex-shrink:0">ℹ️</span>
+                <span>
+                    <strong>Không cần đăng nhập để xem kho.</strong><br />
+                    Chỉ đăng nhập khi cần <em>duyệt phiếu, thêm / sửa / xóa dữ liệu</em>.
+                </span>
+            </div>
+
+            <!-- Error -->
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div style="background:#fef2f2;color:#dc2626;padding:10px 14px;
+                            border-radius:8px;border:1px solid #fecaca;
+                            font-size:12px;margin-bottom:16px;text-align:center">
+                    ⚠️ @errorMessage
+                </div>
+            }
+
+            <!-- Form -->
+            <form @onsubmit="OnSubmitLogin">
+                <div style="margin-bottom:18px">
+                    <label style="display:block;font-size:12px;font-weight:600;
+                                  color:#334155;margin-bottom:6px">
+                        Mật khẩu Thủ Kho *
+                    </label>
+                    <input type="password" @bind="password" @bind:event="oninput"
+                           placeholder="Nhập mật khẩu..."
+                           style="width:100%;padding:12px 14px;border-radius:9px;
+                                  border:1.5px solid #cbd5e1;font-size:14px;
+                                  box-sizing:border-box;background:#fff;color:#0f172a;
+                                  outline:none"
+                           autofocus />
+                </div>
+
+                <button type="submit"
+                        style="width:100%;padding:13px;font-size:14px;font-weight:700;
+                               color:#fff;background:linear-gradient(135deg,#0284c7,#0369a1);
+                               border:none;border-radius:9px;cursor:pointer;
+                               box-shadow:0 4px 14px rgba(2,132,199,0.35);letter-spacing:0.3px">
+                    🔐 Đăng Nhập
+                </button>
+            </form>
+
+            <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:22px">
+                © 2026 AITS Enterprise WMS • Phiên bản 2.5 Pro
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    string password = "";
+    string errorMessage = "";
+
+    void OnSubmitLogin()
+    {
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            errorMessage = "Vui lòng nhập mật khẩu";
+            return;
+        }
+
+        var ok = Svc.Login("thukho", password);
+        if (!ok)
+        {
+            errorMessage = "Mật khẩu không đúng. Thử lại!";
+            return;
+        }
+
+        Nav.NavigateTo("/");
+    }
+}

@@ -1,0 +1,828 @@
+@page "/danhmuc"
+@rendermode InteractiveServer
+@inject WarehouseService Svc
+
+<PageTitle>Sơ đồ kho - AITS Quản Lý Kho</PageTitle>
+
+<style>
+/* ── Warehouse Map Styles ──────────────────────────────────────── */
+.wm-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+.wm-title { font-size:22px; font-weight:800; color:#0f172a; }
+.wm-subtitle { font-size:13px; color:#64748b; margin-top:2px; }
+
+/* Breadcrumb */
+.wm-breadcrumb { display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:20px; flex-wrap:wrap; }
+.wm-bc-item { color:#64748b; cursor:pointer; padding:4px 8px; border-radius:6px; transition:all .15s; }
+.wm-bc-item:hover { background:#f1f5f9; color:#0f172a; }
+.wm-bc-item.active { color:#0f172a; font-weight:700; }
+.wm-bc-sep { color:#cbd5e1; }
+
+/* Zone cards - Level 0 */
+.zone-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:20px; }
+.zone-card { border-radius:16px; padding:24px; cursor:pointer; transition:all .2s; position:relative; overflow:hidden; border:2px solid transparent; }
+.zone-card:hover { transform:translateY(-4px); box-shadow:0 16px 40px rgba(0,0,0,.12); }
+.zone-card-letter { font-size:64px; font-weight:900; opacity:.12; position:absolute; right:-8px; top:-8px; line-height:1; }
+.zone-card-code { display:inline-flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:12px; background:rgba(255,255,255,.3); font-size:24px; font-weight:900; color:#fff; margin-bottom:12px; }
+.zone-card-name { font-size:16px; font-weight:700; color:#fff; margin-bottom:4px; }
+.zone-card-desc { font-size:12px; color:rgba(255,255,255,.8); margin-bottom:16px; }
+.zone-stats { display:flex; gap:12px; }
+.zone-stat { background:rgba(255,255,255,.2); border-radius:8px; padding:6px 10px; font-size:11px; color:#fff; text-align:center; }
+.zone-stat strong { display:block; font-size:16px; font-weight:800; }
+.zone-bar-wrap { margin-top:14px; background:rgba(255,255,255,.2); border-radius:99px; height:6px; }
+.zone-bar-fill { height:6px; border-radius:99px; background:#fff; }
+
+/* Rack view - Level 1 */
+.rack-grid { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-end; }
+.rack-card { border:2px solid #e2e8f0; border-radius:14px; overflow:hidden; cursor:pointer; transition:all .2s; min-width:120px; flex:1; max-width:200px; }
+.rack-card:hover { border-color:#3b82f6; box-shadow:0 8px 24px rgba(59,130,246,.15); transform:translateY(-2px); }
+.rack-header { background:#1e293b; color:#fff; padding:10px 14px; text-align:center; }
+.rack-code { font-size:20px; font-weight:900; }
+.rack-name { font-size:11px; color:#94a3b8; }
+.rack-body { padding:10px; background:#f8fafc; }
+.rack-shelf-preview { background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:6px 8px; margin-bottom:6px; display:flex; align-items:center; gap:6px; justify-content:space-between; font-size:11px; }
+.rack-shelf-label { font-weight:700; color:#334155; min-width:20px; }
+.rack-cells-mini { display:flex; gap:3px; flex-wrap:wrap; }
+.cell-mini-dot { width:10px; height:10px; border-radius:2px; }
+.cell-dot-ok { background:#22c55e; }
+.cell-dot-low { background:#f59e0b; }
+.cell-dot-expiring { background:#ef4444; }
+.cell-dot-empty { background:#e2e8f0; }
+.rack-footer { background:#fff; padding:8px 14px; text-align:center; border-top:1px solid #f1f5f9; }
+.rack-pct { font-size:12px; font-weight:700; }
+
+/* Shelf view - Level 2 */
+.shelf-view { display:flex; flex-direction:column; gap:12px; }
+.shelf-row { border:2px solid #e2e8f0; border-radius:12px; background:#fff; cursor:pointer; transition:all .2s; overflow:hidden; }
+.shelf-row:hover { border-color:#3b82f6; box-shadow:0 4px 16px rgba(59,130,246,.12); }
+.shelf-row-header { display:flex; align-items:center; gap:16px; padding:14px 18px; background:#f8fafc; border-bottom:1px solid #f1f5f9; }
+.shelf-level-badge { width:42px; height:42px; border-radius:10px; background:#1e293b; color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:900; flex-shrink:0; }
+.shelf-row-info { flex:1; }
+.shelf-row-title { font-size:14px; font-weight:700; color:#0f172a; }
+.shelf-row-sub { font-size:12px; color:#64748b; }
+.shelf-cells-preview { display:flex; gap:6px; padding:12px 18px; flex-wrap:wrap; align-items:center; }
+.shelf-cell-chip { width:36px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; }
+.chip-ok { background:#22c55e; }
+.chip-low { background:#f59e0b; }
+.chip-expiring { background:#ef4444; }
+.chip-empty { background:#e2e8f0; color:#94a3b8; }
+
+/* Cell grid - Level 3 */
+.cell-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:14px; }
+.cell-wrapper { position:relative; }
+.cell-card { border:2px solid #e2e8f0; border-radius:12px; padding:14px; cursor:default; transition:all .2s; position:relative; overflow:hidden; min-height:100px; display:flex; flex-direction:column; justify-content:space-between; }
+.cell-card:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,.1); }
+.cell-card.ok { border-color:#22c55e; background:#f0fdf4; }
+.cell-card.low { border-color:#f59e0b; background:#fffbeb; }
+.cell-card.expiring { border-color:#ef4444; background:#fef2f2; }
+.cell-card.empty { border-color:#e2e8f0; background:#f8fafc; }
+.cell-pos { font-size:18px; font-weight:900; color:#0f172a; line-height:1; }
+.cell-mat-name { font-size:11px; font-weight:600; color:#334155; margin-top:6px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.cell-mat-qty { font-size:11px; color:#64748b; margin-top:4px; }
+.cell-empty-label { font-size:11px; color:#94a3b8; margin-top:6px; font-style:italic; }
+.cell-status-dot { width:8px; height:8px; border-radius:50%; position:absolute; top:10px; right:10px; }
+.dot-ok { background:#22c55e; }
+.dot-low { background:#f59e0b; }
+.dot-expiring { background:#ef4444; }
+.dot-empty { background:#e2e8f0; }
+
+/* Tooltip on hover */
+.cell-tooltip { display:none; position:absolute; z-index:200; left:calc(100% + 8px); top:0;
+  background:#1e293b; color:#fff; border-radius:12px; padding:14px 16px;
+  min-width:220px; max-width:260px; box-shadow:0 12px 40px rgba(0,0,0,.3);
+  font-size:12px; line-height:1.5; pointer-events:none; }
+.cell-wrapper:hover .cell-tooltip { display:block; }
+.cell-tooltip h4 { font-size:13px; font-weight:700; margin:0 0 8px; color:#f0f9ff; }
+.cell-tooltip .tt-row { display:flex; justify-content:space-between; padding:2px 0; }
+.cell-tooltip .tt-label { color:#94a3b8; }
+.cell-tooltip .tt-val { font-weight:600; color:#e2e8f0; }
+.cell-tooltip .tt-badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:10px; font-weight:700; margin-top:6px; }
+.badge-ok { background:#22c55e20; color:#16a34a; }
+.badge-low { background:#f59e0b20; color:#d97706; }
+.badge-expiring { background:#ef444420; color:#dc2626; }
+
+/* Legend */
+.wm-legend { display:flex; gap:16px; flex-wrap:wrap; font-size:12px; }
+.legend-item { display:flex; align-items:center; gap:6px; color:#64748b; }
+.legend-dot { width:12px; height:12px; border-radius:3px; }
+
+/* Buttons/Actions */
+.wm-actions { display:flex; gap-8px; gap:8px; flex-wrap:wrap; }
+.icon-btn { padding:6px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; border:none; display:flex; align-items:center; gap:6px; }
+.icon-btn-primary { background:#3b82f6; color:#fff; }
+.icon-btn-primary:hover { background:#2563eb; }
+.icon-btn-danger { background:#fee2e2; color:#dc2626; }
+.icon-btn-danger:hover { background:#fecaca; }
+.icon-btn-outline { background:#f1f5f9; color:#334155; border:1px solid #e2e8f0; }
+.icon-btn-outline:hover { background:#e2e8f0; }
+
+/* Summary bar */
+.wm-summary { display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+.summary-chip { background:#f1f5f9; border-radius:99px; padding:6px 14px; font-size:12px; color:#475569; display:flex; align-items:center; gap:6px; }
+.summary-chip strong { color:#0f172a; }
+</style>
+
+<!-- ═══════════════════════════════ HEADER ═══════════════════════════════ -->
+<div class="wm-header">
+    <div>
+        <div class="wm-title">🏭 Sơ đồ kho tập trung</div>
+        <div class="wm-subtitle">Quản lý vị trí vật tư theo Khu vực → Kệ → Tầng → Ô</div>
+    </div>
+    <div class="wm-actions">
+        @if (level == 0)
+        {
+            <button class="icon-btn icon-btn-primary" @onclick="OpenAddZone">➕ Thêm khu vực mới</button>
+        }
+        else if (level == 1 && selZone != null)
+        {
+            <button class="icon-btn icon-btn-primary" @onclick="OpenAddRack">➕ Thêm kệ mới</button>
+            <button class="icon-btn icon-btn-outline" @onclick="()=>OpenEditZone(selZone)">✏️ Sửa khu @selZone.Code</button>
+            <button class="icon-btn icon-btn-danger" @onclick="()=>ConfirmDeleteZone(selZone)">🗑 Xóa khu vực @selZone.Code</button>
+        }
+        else if (level == 2 && selRack != null)
+        {
+            <button class="icon-btn icon-btn-primary" @onclick="OpenAddShelf">➕ Thêm tầng mới</button>
+            <button class="icon-btn icon-btn-outline" @onclick="()=>OpenEditRack(selRack)">✏️ Sửa kệ @selRack.Code</button>
+            <button class="icon-btn icon-btn-danger" @onclick="()=>ConfirmDeleteRack(selRack)">🗑 Xóa kệ @selRack.Code</button>
+        }
+        else if (level == 3 && selShelf != null)
+        {
+            <button class="icon-btn icon-btn-primary" @onclick="OpenAddCell">➕ Thêm ô mới</button>
+            <button class="icon-btn icon-btn-outline" @onclick="()=>OpenEditShelf(selShelf)">✏️ Sửa tầng @selShelf.Level</button>
+            <button class="icon-btn icon-btn-danger" @onclick="()=>ConfirmDeleteShelf(selShelf)">🗑 Xóa tầng @selShelf.Level</button>
+        }
+    </div>
+</div>
+
+<!-- ═══════════════════════════════ BREADCRUMB ════════════════════════════ -->
+<div class="wm-breadcrumb">
+    <span class="wm-bc-item @(level==0?"active":"")" @onclick="()=>GoLevel(0)">🏭 Kho</span>
+    @if (level >= 1 && selZone != null)
+    {
+        <span class="wm-bc-sep">›</span>
+        <span class="wm-bc-item @(level==1?"active":"")" @onclick="()=>GoLevel(1)">Khu @selZone.Code</span>
+    }
+    @if (level >= 2 && selRack != null)
+    {
+        <span class="wm-bc-sep">›</span>
+        <span class="wm-bc-item @(level==2?"active":"")" @onclick="()=>GoLevel(2)">Kệ @selRack.Code</span>
+    }
+    @if (level >= 3 && selShelf != null)
+    {
+        <span class="wm-bc-sep">›</span>
+        <span class="wm-bc-item active">Tầng @selShelf.Level</span>
+    }
+</div>
+
+<!-- ═══════════════════════════════ LEGEND + SUMMARY ═════════════════════ -->
+<div class="wm-summary">
+    @if (level == 0)
+    {
+        <div class="summary-chip">📦 <strong>@zones.Count</strong> khu vực</div>
+        <div class="summary-chip">🗄 <strong>@zones.Sum(z=>z.Racks?.Count ?? 0)</strong> kệ</div>
+        <div class="summary-chip">📋 <strong>@zones.Sum(z=>z.TotalCells)</strong> ô tổng</div>
+        <div class="summary-chip">✅ <strong>@zones.Sum(z=>z.OccupiedCells)</strong> ô có hàng</div>
+    }
+    @if (level == 1 && selZone != null)
+    {
+        <div class="summary-chip">🗄 <strong>@(selZone.Racks?.Count ?? 0)</strong> kệ trong khu @selZone.Code</div>
+        <div class="summary-chip">📋 <strong>@selZone.TotalCells</strong> ô tổng</div>
+        <div class="summary-chip">✅ <strong>@selZone.OccupiedCells</strong> ô có hàng</div>
+    }
+    @if (level == 2 && selRack != null)
+    {
+        <div class="summary-chip">📐 <strong>@(selRack.Shelves?.Count ?? 0)</strong> tầng</div>
+        <div class="summary-chip">📋 <strong>@selRack.TotalCells</strong> ô tổng</div>
+    }
+    @if (level == 3 && selShelf != null)
+    {
+        <div class="summary-chip">📋 <strong>@(selShelf.Cells?.Count ?? 0)</strong> ô</div>
+        <div class="summary-chip">✅ <strong>@selShelf.OccupiedCells</strong> ô có hàng</div>
+        <div class="summary-chip">⬜ <strong>@((selShelf.Cells?.Count ?? 0) - selShelf.OccupiedCells)</strong> ô trống</div>
+    }
+    <div class="wm-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div>Bình thường</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Sắp hết</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div>Sắp hết hạn/Hết</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e2e8f0"></div>Ô trống</div>
+    </div>
+</div>
+
+<!-- ══════════════════════════ LEVEL 0: ZONES ════════════════════════════ -->
+@if (level == 0)
+{
+    <div class="zone-grid">
+        @foreach (var z in zones)
+        {
+            var zone = z;
+            int pct = zone.TotalCells == 0 ? 0 : (int)(zone.OccupiedCells * 100.0 / zone.TotalCells);
+            <div class="zone-card" style="background:linear-gradient(135deg,@zone.Color,@DarkenHex(zone.Color))"
+                 @onclick="()=>SelectZone(zone)">
+                <div class="zone-card-letter">@zone.Code</div>
+                <div class="zone-card-code">@zone.Code</div>
+                <div class="zone-card-name">@zone.Name</div>
+                <div class="zone-card-desc">@zone.Description</div>
+                <div class="zone-stats">
+                    <div class="zone-stat"><strong>@(zone.Racks?.Count ?? 0)</strong>kệ</div>
+                    <div class="zone-stat"><strong>@(zone.Racks?.Sum(r => r.Shelves?.Count ?? 0) ?? 0)</strong>tầng</div>
+                    <div class="zone-stat"><strong>@zone.TotalCells</strong>ô</div>
+                </div>
+                <div style="margin-top:10px;display:flex;gap:6px" @onclick:stopPropagation="true">
+                    <button class="icon-btn icon-btn-outline" style="font-size:10px;padding:3px 8px;color:#fff;background:rgba(255,255,255,.25);border:1px solid rgba(255,255,255,.4)"
+                            @onclick="()=>OpenEditZone(zone)">✏️ Sửa</button>
+                </div>
+            </div>
+        }
+        @* Card visual thêm Khu vực mới *@
+        <div class="zone-card" @onclick="OpenAddZone"
+             style="border:2px dashed #94a3b8;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:180px;cursor:pointer;transition:all .2s"
+             onmouseover="this.style.borderColor='#3b82f6';this.style.background='#eff6ff'"
+             onmouseout="this.style.borderColor='#94a3b8';this.style.background='#f8fafc'">
+            <div style="font-size:36px;color:#3b82f6;margin-bottom:6px">➕</div>
+            <div style="font-weight:800;font-size:15px;color:#1e293b">Thêm Khu Vực Mới</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px">Tạo mới Khu D, E, F...</div>
+        </div>
+    </div>
+}
+
+<!-- ══════════════════════════ LEVEL 1: RACKS ════════════════════════════ -->
+@if (level == 1 && selZone != null)
+{
+    <div class="rack-grid">
+        @foreach (var rack in (selZone.Racks ?? new List<StorageRack>()).OrderBy(r => r.Code))
+        {
+            var r = rack;
+            int pct = r.TotalCells == 0 ? 0 : (int)r.OccupancyRate;
+            string pctColor = pct > 80 ? "#ef4444" : pct > 50 ? "#f59e0b" : "#22c55e";
+            <div class="rack-card" @onclick="()=>SelectRack(r)">
+                <div class="rack-header" style="background:@selZone.Color">
+                    <div class="rack-code">@r.Code</div>
+                    <div class="rack-name">@r.Name</div>
+                </div>
+                <div class="rack-body">
+                    @foreach (var shelf in (r.Shelves ?? new List<StorageShelf>()).OrderByDescending(s => s.SortOrder))
+                    {
+                        <div class="rack-shelf-preview">
+                            <span class="rack-shelf-label">@shelf.Level</span>
+                            <div class="rack-cells-mini">
+                                @foreach (var cell in (shelf.Cells ?? new List<StorageCell>()).Take(6))
+                                {
+                                    <div class="cell-mini-dot @GetDotClass(cell.StatusColor)"></div>
+                                }
+                            </div>
+                            <span style="font-size:10px;color:#94a3b8">@shelf.OccupiedCells/@(shelf.Cells?.Count ?? 0)</span>
+                        </div>
+                    }
+                    @if (!(r.Shelves?.Any() ?? false))
+                    {
+                        <div style="font-size:11px;color:#94a3b8;text-align:center;padding:8px">Chưa có tầng</div>
+                    }
+                </div>
+                <div class="rack-footer">
+                    <div class="rack-pct" style="color:#475569"><strong>@(r.Shelves?.Count ?? 0)</strong> tầng · <strong>@r.TotalCells</strong> ô</div>
+                    <div style="display:flex;gap:4px;justify-content:center;margin-top:4px" @onclick:stopPropagation="true">
+                        <button class="icon-btn icon-btn-outline mt-4" style="font-size:10px;padding:3px 8px"
+                                @onclick="()=>OpenEditRack(r)">✏️ Sửa</button>
+                        <button class="icon-btn icon-btn-danger mt-4" style="font-size:10px;padding:3px 8px"
+                                @onclick="()=>ConfirmDeleteRack(r)">Xóa kệ</button>
+                    </div>
+                </div>
+            </div>
+        }
+        @* Card visual thêm Kệ mới *@
+        <div class="rack-card" @onclick="OpenAddRack"
+             style="border:2px dashed #94a3b8;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-width:140px;min-height:160px;cursor:pointer;transition:all .2s"
+             onmouseover="this.style.borderColor='#3b82f6';this.style.background='#eff6ff'"
+             onmouseout="this.style.borderColor='#94a3b8';this.style.background='#f8fafc'">
+            <div style="font-size:28px;color:#3b82f6;margin-bottom:4px">➕</div>
+            <div style="font-weight:700;font-size:13px;color:#1e293b">Thêm Kệ Mới</div>
+            <div style="font-size:11px;color:#64748b">Vào khu @selZone.Code</div>
+        </div>
+    </div>
+}
+
+<!-- ══════════════════════════ LEVEL 2: SHELVES ══════════════════════════ -->
+@if (level == 2 && selRack != null)
+{
+    <div class="shelf-view">
+        @foreach (var shelf in (selRack.Shelves ?? new List<StorageShelf>()).OrderByDescending(s => s.SortOrder))
+        {
+            var sh = shelf;
+            <div class="shelf-row" @onclick="()=>SelectShelf(sh)">
+                <div class="shelf-row-header">
+                    <div class="shelf-level-badge" style="background:@selZone?.Color">@sh.Level</div>
+                    <div class="shelf-row-info">
+                        <div class="shelf-row-title">Tầng @sh.Level — @(sh.Cells?.Count ?? 0) ô</div>
+                        <div class="shelf-row-sub">@sh.OccupiedCells có hàng · @((sh.Cells?.Count ?? 0) - sh.OccupiedCells) trống</div>
+                    </div>
+                    <div style="display:flex;gap:6px" @onclick:stopPropagation="true">
+                        <button class="icon-btn icon-btn-outline" style="font-size:11px;padding:4px 10px"
+                                @onclick="()=>OpenEditShelf(sh)">✏️ Sửa</button>
+                        <button class="icon-btn icon-btn-danger" style="font-size:11px;padding:4px 10px"
+                                @onclick="()=>ConfirmDeleteShelf(sh)">Xóa tầng</button>
+                    </div>
+                </div>
+                <div class="shelf-cells-preview">
+                    @foreach (var cell in (sh.Cells ?? new List<StorageCell>()).OrderBy(c => c.Position))
+                    {
+                        <div class="shelf-cell-chip @GetChipClass(cell.StatusColor)">@($"{sh.Level}.{cell.Position}")</div>
+                    }
+                    @if (!(sh.Cells?.Any() ?? false))
+                    {
+                        <span style="font-size:11px;color:#94a3b8;font-style:italic">Tầng chưa có ô</span>
+                    }
+                </div>
+            </div>
+        }
+        @* Nút visual thêm Tầng mới *@
+        <div class="shelf-row" @onclick="OpenAddShelf"
+             style="border:2px dashed #94a3b8;background:#f8fafc;padding:16px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all .2s"
+             onmouseover="this.style.borderColor='#3b82f6';this.style.background='#eff6ff'"
+             onmouseout="this.style.borderColor='#94a3b8';this.style.background='#f8fafc'">
+            <span style="font-size:20px;color:#3b82f6">➕</span>
+            <span style="font-weight:700;font-size:14px;color:#1e293b">Thêm Tầng Mới vào Kệ @selRack.Code</span>
+        </div>
+    </div>
+}
+
+<!-- ══════════════════════════ LEVEL 3: CELLS ════════════════════════════ -->
+@if (level == 3 && selShelf != null)
+{
+    <div class="cell-grid">
+        @foreach (var cell in (selShelf.Cells ?? new List<StorageCell>()).OrderBy(c => c.Position))
+        {
+            var c = cell;
+            string cellName = $"{selShelf.Level}.{c.Position}";
+            var cellMats = GetMaterialsInCell(c);
+            bool isOccupied = cellMats.Any() || c.IsOccupied;
+            string statusColor = !isOccupied ? "empty"
+                : cellMats.Any(m => m.IsExpiringSoon) ? "expiring"
+                : cellMats.Any(m => m.Quantity <= m.MinQuantity) ? "low"
+                : "ok";
+            <div class="cell-wrapper">
+                <div class="cell-card @statusColor">
+                    <div class="cell-status-dot @("dot-"+statusColor)"></div>
+                    <div>
+                        <div class="cell-pos">@cellName</div>
+                        @if (cellMats.Any())
+                        {
+                            @if (cellMats.Count == 1)
+                            {
+                                <div class="cell-mat-name">@cellMats[0].Name</div>
+                                <div class="cell-mat-qty">@cellMats[0].Quantity.ToString("N0") @cellMats[0].Unit</div>
+                            }
+                            else
+                            {
+                                <div class="cell-mat-name" style="color:#2563eb;font-weight:700">📦 @cellMats.Count vật tư</div>
+                                <div class="cell-mat-qty text-xs" style="color:#475569;line-height:1.2">
+                                    @string.Join(", ", cellMats.Select(m => m.Name))
+                                </div>
+                            }
+                        }
+                        else if (c.IsOccupied)
+                        {
+                            <div class="cell-mat-name">@c.MaterialName</div>
+                            <div class="cell-mat-qty">@c.MaterialQty.ToString("N0") @c.MaterialUnit</div>
+                        }
+                        else
+                        {
+                            <div class="cell-empty-label">📭 Ô trống</div>
+                        }
+                    </div>
+                    <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+                        <button class="icon-btn icon-btn-outline" style="font-size:10px;padding:2px 7px"
+                                @onclick="()=>OpenAssignCell(c)">
+                            @(isOccupied ? "✏️ Đổi/Gán" : "📦 Gán")
+                        </button>
+                        <button class="icon-btn icon-btn-outline" style="font-size:10px;padding:2px 7px"
+                                @onclick="()=>OpenEditCell(c)">✏️ Vị trí</button>
+                        @if (isOccupied)
+                        {
+                            <button class="icon-btn icon-btn-danger" style="font-size:10px;padding:2px 7px"
+                                    @onclick="()=>ClearCellConfirm(c)">🗑</button>
+                        }
+                        <button class="icon-btn icon-btn-danger" style="font-size:10px;padding:2px 7px"
+                                @onclick="()=>ConfirmDeleteCell(c)">✕</button>
+                    </div>
+                </div>
+                @if (isOccupied)
+                {
+                    <div class="cell-tooltip">
+                        <h4>📦 Ô @selShelf.Level.@c.Position (@(cellMats.Any() ? cellMats.Count : 1) vật tư)</h4>
+                        @if (cellMats.Any())
+                        {
+                            @foreach (var m in cellMats)
+                            {
+                                <div style="border-bottom:1px dashed #475569;padding-bottom:4px;margin-bottom:4px">
+                                    <div class="tt-row"><span class="tt-label">Tên VT</span><span class="tt-val" style="color:#60a5fa">@m.Name</span></div>
+                                    <div class="tt-row"><span class="tt-label">Mã VT</span><span class="tt-val">@m.Code</span></div>
+                                    <div class="tt-row"><span class="tt-label">Số lượng</span><span class="tt-val">@m.Quantity.ToString("N0") @m.Unit</span></div>
+                                    <div class="tt-row"><span class="tt-label">Số lô</span><span class="tt-val">@m.BatchNumber</span></div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="tt-row"><span class="tt-label">Tên VT</span><span class="tt-val">@c.MaterialName</span></div>
+                            <div class="tt-row"><span class="tt-label">Mã VT</span><span class="tt-val">@c.MaterialCode</span></div>
+                            <div class="tt-row"><span class="tt-label">Số lượng</span><span class="tt-val">@c.MaterialQty.ToString("N0") @c.MaterialUnit</span></div>
+                        }
+                        <div class="tt-row"><span class="tt-label">Vị trí</span><span class="tt-val">@selZone?.Code › @selRack?.Code › @selShelf.Level › @c.Position</span></div>
+                    </div>
+                }
+            </div>
+        }
+        @* Card visual thêm Ô mới *@
+        <div class="cell-wrapper">
+            <div class="cell-card" @onclick="OpenAddCell"
+                 style="border:2px dashed #94a3b8;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:100px;cursor:pointer;transition:all .2s"
+                 onmouseover="this.style.borderColor='#3b82f6';this.style.background='#eff6ff'"
+                 onmouseout="this.style.borderColor='#94a3b8';this.style.background='#f8fafc'">
+                <div style="font-size:22px;color:#3b82f6;margin-bottom:2px">➕</div>
+                <div style="font-weight:700;font-size:12px;color:#1e293b">Thêm Ô Mới</div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ══════════════════════════════ MODALS ════════════════════════════════ -->
+
+@* Add/Edit Zone Modal *@
+@if (showZoneModal)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal" @onclick:stopPropagation="true" style="min-width:380px">
+            <div class="modal-title">@(zoneForm.Id==0 ? "Thêm khu vực mới" : "Chỉnh sửa khu vực")</div>
+            <div class="form-group mb-12">
+                <label class="field-label">Mã khu vực *</label>
+                <input type="text" @bind="zoneForm.Code" placeholder="A, B, C, ..." maxlength="5" />
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label">Tên khu vực *</label>
+                <input type="text" @bind="zoneForm.Name" placeholder="Khu vực A - Vật liệu thô" />
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label">Mô tả</label>
+                <input type="text" @bind="zoneForm.Description" placeholder="Mô tả ngắn về khu vực..." />
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label">Màu sắc</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    @foreach (var col in zoneColors)
+                    {
+                        var c2 = col;
+                        <div style="width:32px;height:32px;border-radius:8px;background:@c2;cursor:pointer;border:3px solid @(zoneForm.Color==c2?"#0f172a":"transparent")"
+                             @onclick="()=>zoneForm.Color=c2"></div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseModals">Hủy</button>
+                <button class="btn btn-primary" @onclick="SaveZone" disabled="@(string.IsNullOrWhiteSpace(zoneForm.Code)||string.IsNullOrWhiteSpace(zoneForm.Name))">
+                    @(zoneForm.Id==0 ? "Thêm khu vực" : "Lưu")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Add/Edit Rack Modal *@
+@if (showRackModal && selZone != null)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal" @onclick:stopPropagation="true" style="min-width:360px">
+            <div class="modal-title">@(rackForm.Id == 0 ? $"Thêm kệ mới vào khu {selZone.Code}" : $"Chỉnh sửa kệ {rackForm.Code}")</div>
+            <div class="form-group mb-12">
+                <label class="field-label">Mã kệ *</label>
+                <input type="text" @bind="rackForm.Code" placeholder="@(selZone.Code)1, @(selZone.Code)2, ..." />
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label">Tên kệ</label>
+                <input type="text" @bind="rackForm.Name" placeholder="Kệ @(selZone.Code)1" />
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label">Mô tả</label>
+                <input type="text" @bind="rackForm.Description" placeholder="Dùng để chứa..." />
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseModals">Hủy</button>
+                <button class="btn btn-primary" @onclick="SaveRack" disabled="@string.IsNullOrWhiteSpace(rackForm.Code)">@(rackForm.Id == 0 ? "Thêm kệ" : "Lưu")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Add/Edit Shelf Modal *@
+@if (showShelfModal && selRack != null)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal" @onclick:stopPropagation="true" style="min-width:340px">
+            <div class="modal-title">@(shelfForm.Id == 0 ? $"Thêm tầng vào kệ {selRack.Code}" : $"Chỉnh sửa tầng {shelfForm.Level}")</div>
+            <div class="form-group mb-12">
+                <label class="field-label">Tên tầng *</label>
+                <input type="text" @bind="shelfForm.Level" placeholder="I, II, III, IV, V, ..." />
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseModals">Hủy</button>
+                <button class="btn btn-primary" @onclick="SaveShelf" disabled="@string.IsNullOrWhiteSpace(shelfForm.Level)">@(shelfForm.Id == 0 ? "Thêm tầng" : "Lưu")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Add/Edit Cell Modal *@
+@if (showCellModal && selShelf != null)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal" @onclick:stopPropagation="true" style="min-width:340px">
+            <div class="modal-title">@(cellForm.Id == 0 ? $"Thêm ô vào tầng {selShelf.Level}" : $"Chỉnh sửa ô {selShelf.Level}.{cellForm.Position}")</div>
+            <div class="form-group mb-12">
+                <label class="field-label">Vị trí ô *</label>
+                <input type="text" @bind="cellForm.Position" placeholder="1, 2, 3, ..." />
+            </div>
+            <div class="form-group mb-12">
+                <label class="field-label">Ghi chú</label>
+                <input type="text" @bind="cellForm.Note" placeholder="Ghi chú..." />
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseModals">Hủy</button>
+                <button class="btn btn-primary" @onclick="SaveCell" disabled="@string.IsNullOrWhiteSpace(cellForm.Position)">@(cellForm.Id == 0 ? "Thêm ô" : "Lưu")</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Assign material to cell modal *@
+
+@if (showAssignModal && assignCell != null)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal" @onclick:stopPropagation="true" style="min-width:400px;max-height:80vh;overflow-y:auto">
+            <div class="modal-title">📦 Gán vật tư vào ô @($"{selShelf?.Level}.{assignCell.Position}")</div>
+            <input type="text" placeholder="🔍 Tìm vật tư..." @bind="matSearch" @bind:event="oninput"
+                   style="width:100%;padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;margin-bottom:12px" />
+            <div style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+                @foreach (var m in FilteredMaterials)
+                {
+                    var mat = m;
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;transition:all .15s"
+                         @onclick="()=>AssignMaterial(mat)"
+                         onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background=''">
+                        <div>
+                            <div style="font-weight:600;font-size:13px">@mat.Name</div>
+                            <div style="font-size:11px;color:#64748b">@mat.Code · @mat.Quantity @mat.Unit</div>
+                        </div>
+                        <span style="font-size:11px;color:#3b82f6;font-weight:600">Chọn →</span>
+                    </div>
+                }
+                @if (!FilteredMaterials.Any())
+                {
+                    <div style="text-align:center;color:#94a3b8;padding:20px;font-style:italic">Không tìm thấy vật tư</div>
+                }
+            </div>
+            <div class="modal-footer" style="margin-top:12px">
+                <button class="btn btn-outline" @onclick="CloseModals">Hủy</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Delete confirmation modal *@
+@if (showDeleteModal)
+{
+    <div class="modal-overlay" @onclick="CloseModals">
+        <div class="modal text-center" style="max-width:420px" @onclick:stopPropagation="true">
+            <div class="modal-title text-red" style="font-size:18px">🗑️ Xác nhận xóa</div>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;margin:12px 0;color:#991b1b;font-size:13px">
+                @deleteMsg
+            </div>
+            <div class="modal-footer justify-between">
+                <button class="btn btn-outline" @onclick="CloseModals">Hủy</button>
+                <button class="btn" style="background:#dc2626;color:#fff" @onclick="ConfirmDelete">Xác nhận xóa</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // ── State ─────────────────────────────────────────────────────────────────
+    List<StorageZone> zones = [];
+    List<Material> materials = [];
+
+    List<Material> GetMaterialsInCell(StorageCell c)
+    {
+        if (selZone == null || selRack == null || selShelf == null) return [];
+        var locStr1 = $"{selZone.Code} > {selRack.Code} > {selShelf.Level} > {c.Position}";
+        var locStr2 = $"{selZone.Code} > {selRack.Code} > Tầng {selShelf.Level} > Ô {c.Position}";
+
+        return materials.Where(m =>
+            (c.MaterialId.HasValue && m.Id == c.MaterialId.Value) ||
+            (!string.IsNullOrEmpty(m.Location) && (m.Location == locStr1 || m.Location == locStr2 || m.Location.Contains(locStr1)))
+        ).DistinctBy(m => m.Id).ToList();
+    }
+    int level = 0;                  // 0=zones, 1=racks, 2=shelves, 3=cells
+    StorageZone? selZone;
+    StorageRack? selRack;
+    StorageShelf? selShelf;
+
+    // ── Zone modal ────────────────────────────────────────────────────────────
+    bool showZoneModal;
+    StorageZone zoneForm = new();
+    static readonly string[] zoneColors = ["#3b82f6","#10b981","#8b5cf6","#f59e0b","#ef4444","#06b6d4","#ec4899","#84cc16"];
+
+    // ── Rack modal ────────────────────────────────────────────────────────────
+    bool showRackModal;
+    StorageRack rackForm = new();
+
+    // ── Shelf modal ───────────────────────────────────────────────────────────
+    bool showShelfModal;
+    StorageShelf shelfForm = new();
+
+    // ── Cell modal ────────────────────────────────────────────────────────────
+    bool showCellModal;
+    StorageCell cellForm = new();
+
+    // ── Assign modal ──────────────────────────────────────────────────────────
+    bool showAssignModal;
+    StorageCell? assignCell;
+    string matSearch = "";
+    IEnumerable<Material> FilteredMaterials => materials.Where(m =>
+        string.IsNullOrEmpty(matSearch) ||
+        m.Name.Contains(matSearch, StringComparison.OrdinalIgnoreCase) ||
+        m.Code.Contains(matSearch, StringComparison.OrdinalIgnoreCase));
+
+    // ── Delete modal ──────────────────────────────────────────────────────────
+    bool showDeleteModal;
+    string deleteMsg = "";
+    Func<Task>? deleteAction;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    async Task Reload()
+    {
+        zones = await Svc.GetZonesAsync() ?? [];
+        materials = await Svc.GetMaterialsAsync() ?? [];
+        // Refresh selected objects from fresh data
+        if (selZone != null) selZone = zones.FirstOrDefault(z => z.Id == selZone.Id);
+        if (selZone != null && selRack != null) selRack = (selZone.Racks ?? []).FirstOrDefault(r => r.Id == selRack.Id);
+        if (selRack != null && selShelf != null) selShelf = (selRack.Shelves ?? []).FirstOrDefault(s => s.Id == selShelf.Id);
+        // Go back level if selection lost
+        if (level == 1 && selZone == null) level = 0;
+        if (level == 2 && selRack == null) level = 1;
+        if (level == 3 && selShelf == null) level = 2;
+    }
+
+    // ── Navigation ────────────────────────────────────────────────────────────
+    void GoLevel(int l)
+    {
+        if (l < level) level = l;
+        if (level == 0) { selZone = null; selRack = null; selShelf = null; }
+        else if (level == 1) { selRack = null; selShelf = null; }
+        else if (level == 2) { selShelf = null; }
+    }
+
+    void SelectZone(StorageZone z) { selZone = z; level = 1; }
+    void SelectRack(StorageRack r) { selRack = r; level = 2; }
+    void SelectShelf(StorageShelf s) { selShelf = s; level = 3; }
+
+    // ── Zone CRUD ─────────────────────────────────────────────────────────────
+    void OpenAddZone() { zoneForm = new StorageZone { Color = "#3b82f6" }; showZoneModal = true; }
+    void OpenEditZone(StorageZone z) { zoneForm = new StorageZone { Id=z.Id, Code=z.Code, Name=z.Name, Description=z.Description, Color=z.Color }; showZoneModal = true; }
+
+    async Task SaveZone()
+    {
+        if (string.IsNullOrWhiteSpace(zoneForm.Code) || string.IsNullOrWhiteSpace(zoneForm.Name)) return;
+        if (zoneForm.Id == 0) await Svc.AddZoneAsync(zoneForm);
+        else await Svc.UpdateZoneAsync(zoneForm);
+        await Reload(); CloseModals();
+    }
+
+    void ConfirmDeleteZone(StorageZone z)
+    {
+        deleteMsg = $"Xóa khu vực \"{z.Code} - {z.Name}\" sẽ xóa toàn bộ kệ, tầng và ô bên trong. Không thể hoàn tác!";
+        deleteAction = async () => { await Svc.DeleteZoneAsync(z.Id); GoLevel(0); await Reload(); };
+        showDeleteModal = true;
+    }
+
+    // ── Rack CRUD ─────────────────────────────────────────────────────────────
+    void OpenAddRack() { rackForm = new StorageRack { ZoneId = selZone!.Id }; showRackModal = true; }
+    void OpenEditRack(StorageRack r) { rackForm = new StorageRack { Id=r.Id, Code=r.Code, Name=r.Name, Description=r.Description, ZoneId=r.ZoneId }; showRackModal = true; }
+
+    async Task SaveRack()
+    {
+        if (string.IsNullOrWhiteSpace(rackForm.Code)) return;
+        rackForm.ZoneId = selZone!.Id;
+        if (string.IsNullOrWhiteSpace(rackForm.Name)) rackForm.Name = $"Kệ {rackForm.Code}";
+        if (rackForm.Id == 0) await Svc.AddRackAsync(rackForm);
+        else await Svc.UpdateRackAsync(rackForm);
+        await Reload(); CloseModals();
+    }
+
+    void ConfirmDeleteRack(StorageRack r)
+    {
+        deleteMsg = $"Xóa kệ \"{r.Code}\" sẽ xóa toàn bộ tầng và ô bên trong. Không thể hoàn tác!";
+        deleteAction = async () => { await Svc.DeleteRackAsync(r.Id); GoLevel(1); await Reload(); };
+        showDeleteModal = true;
+    }
+
+    // ── Shelf CRUD ────────────────────────────────────────────────────────────
+    void OpenAddShelf() { shelfForm = new StorageShelf { RackId = selRack!.Id }; showShelfModal = true; }
+    void OpenEditShelf(StorageShelf s) { shelfForm = new StorageShelf { Id=s.Id, Level=s.Level, RackId=s.RackId, SortOrder=s.SortOrder }; showShelfModal = true; }
+
+    async Task SaveShelf()
+    {
+        if (string.IsNullOrWhiteSpace(shelfForm.Level)) return;
+        shelfForm.RackId = selRack!.Id;
+        if (shelfForm.Id == 0) await Svc.AddShelfAsync(shelfForm);
+        else await Svc.UpdateShelfAsync(shelfForm);
+        await Reload(); CloseModals();
+    }
+
+    void ConfirmDeleteShelf(StorageShelf s)
+    {
+        deleteMsg = $"Xóa tầng \"{s.Level}\" sẽ xóa toàn bộ ô bên trong. Không thể hoàn tác!";
+        deleteAction = async () => { await Svc.DeleteShelfAsync(s.Id); GoLevel(2); await Reload(); };
+        showDeleteModal = true;
+    }
+
+    // ── Cell CRUD ─────────────────────────────────────────────────────────────
+    void OpenAddCell() { cellForm = new StorageCell { ShelfId = selShelf!.Id }; showCellModal = true; }
+    void OpenEditCell(StorageCell c) { cellForm = new StorageCell { Id=c.Id, Position=c.Position, Note=c.Note, ShelfId=c.ShelfId, MaterialId=c.MaterialId }; showCellModal = true; }
+
+    async Task SaveCell()
+    {
+        if (string.IsNullOrWhiteSpace(cellForm.Position)) return;
+        cellForm.ShelfId = selShelf!.Id;
+        if (cellForm.Id == 0) await Svc.AddCellAsync(cellForm);
+        else await Svc.UpdateCellAsync(cellForm);
+        await Reload(); CloseModals();
+    }
+
+    void ConfirmDeleteCell(StorageCell c)
+    {
+        deleteMsg = $"Xóa ô \"{selShelf?.Level}.{c.Position}\"? Thao tác này không thể hoàn tác.";
+        deleteAction = async () => { await Svc.DeleteCellAsync(c.Id); await Reload(); };
+        showDeleteModal = true;
+    }
+
+    void ClearCellConfirm(StorageCell c)
+    {
+        deleteMsg = $"Dọn trống ô \"{selShelf?.Level}.{c.Position}\" - xóa liên kết vật tư \"{c.MaterialName}\"?";
+        deleteAction = async () => { await Svc.AssignMaterialToCellAsync(c.Id, null); await Reload(); };
+        showDeleteModal = true;
+    }
+
+    // ── Assign Material ───────────────────────────────────────────────────────
+    void OpenAssignCell(StorageCell c) { assignCell = c; matSearch = ""; showAssignModal = true; }
+
+    async Task AssignMaterial(Material mat)
+    {
+        if (assignCell == null) return;
+        await Svc.AssignMaterialToCellAsync(assignCell.Id, mat);
+        await Reload(); CloseModals();
+    }
+
+    // ── Delete ────────────────────────────────────────────────────────────────
+    async Task ConfirmDelete()
+    {
+        if (deleteAction != null) await deleteAction();
+        CloseModals();
+    }
+
+    void CloseModals()
+    {
+        showZoneModal = showRackModal = showShelfModal = showCellModal = showAssignModal = showDeleteModal = false;
+        deleteAction = null;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    static string GetDotClass(string status) => status switch
+    {
+        "ok" => "cell-dot-ok",
+        "low" => "cell-dot-low",
+        "expiring" => "cell-dot-expiring",
+        _ => "cell-dot-empty"
+    };
+
+    static string GetChipClass(string status) => status switch
+    {
+        "ok" => "chip-ok",
+        "low" => "chip-low",
+        "expiring" => "chip-expiring",
+        _ => "chip-empty"
+    };
+
+    static string DarkenHex(string hex)
+    {
+        // Simple darkening for gradient
+        try
+        {
+            var h = hex.TrimStart('#');
+            int r = Convert.ToInt32(h[..2], 16);
+            int g = Convert.ToInt32(h[2..4], 16);
+            int b = Convert.ToInt32(h[4..6], 16);
+            return $"#{Math.Max(0,r-50):X2}{Math.Max(0,g-50):X2}{Math.Max(0,b-50):X2}";
+        }
+        catch { return hex; }
+    }
+}

@@ -1,0 +1,206 @@
+@page "/baocao"
+@rendermode InteractiveServer
+@inject WarehouseService Svc
+@inject IJSRuntime JS
+@using System.Text
+
+<PageTitle>Báo cáo - AITS Quản Lý Kho</PageTitle>
+
+<div class="page-header">
+    <h1 class="page-title">📈 Báo cáo & Lịch sử hoạt động</h1>
+    <div class="flex gap-8">
+        <button class="btn btn-outline" @onclick="ExportTransactions">⬇️ Xuất giao dịch</button>
+        <button class="btn btn-outline" @onclick="ExportMaterials">⬇️ Xuất tồn kho</button>
+    </div>
+</div>
+
+@if (stats != null)
+{
+    <!-- KPI -->
+    <div class="grid grid-4 mb-16">
+        <div class="stat-card"><div><div class="stat-label">Tổng nhập</div><div class="stat-value" style="color:#16a34a">₫ @((stats.TotalImportValue/1_000_000m).ToString("F1"))M</div><div class="stat-sub">@txCount("Nhập kho") phiếu nhập</div></div><div class="stat-icon icon-green">📈</div></div>
+        <div class="stat-card"><div><div class="stat-label">Tổng xuất</div><div class="stat-value" style="color:#ea580c">₫ @((stats.TotalExportValue/1_000_000m).ToString("F1"))M</div><div class="stat-sub">@txCount("Xuất kho") phiếu xuất</div></div><div class="stat-icon icon-orange">📉</div></div>
+        <div class="stat-card"><div><div class="stat-label">Tổng vật tư quản lý</div><div class="stat-value" style="color:#2563eb">@stats.TotalMaterials loại</div><div class="stat-sub">Trong 3 kho</div></div><div class="stat-icon icon-blue">📦</div></div>
+        <div class="stat-card"><div><div class="stat-label">Giá trị tồn kho</div><div class="stat-value" style="color:#7c3aed">₫ @((stats.StockValue/1_000_000_000m).ToString("F2")) tỷ</div><div class="stat-sub">Theo đơn giá hiện tại</div></div><div class="stat-icon icon-purple">💰</div></div>
+    </div>
+
+    <div class="grid grid-3 mb-16">
+        <!-- Chart -->
+        <div class="card" style="grid-column:span 2">
+            <div class="card-header">
+                <span>Biểu đồ nhập/xuất kho (6 tháng)</span>
+                <div class="flex gap-12 text-xs text-gray">
+                    <span><span style="display:inline-block;width:10px;height:10px;background:#4ade80;border-radius:2px;margin-right:4px;vertical-align:middle"></span>Nhập kho</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;background:#fb923c;border-radius:2px;margin-right:4px;vertical-align:middle"></span>Xuất kho</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="bar-chart">
+                    @foreach (var d in monthlyData)
+                    {
+                        <div class="bar-group">
+                            <div class="bars">
+                                <div class="bar bar-import" style="height:@(d.Import * 100 / maxVal)%" title="Nhập: @d.Import"></div>
+                                <div class="bar bar-export" style="height:@(d.Export * 100 / maxVal)%" title="Xuất: @d.Export"></div>
+                            </div>
+                            <div class="bar-label">@d.Month</div>
+                        </div>
+                    }
+                </div>
+                <div class="grid grid-3 mt-12">
+                    <div style="background:#f0fdf4;border-radius:8px;padding:10px;text-align:center"><div class="text-xs text-gray">TB nhập/tháng</div><div class="font-bold text-green">380 phiếu</div></div>
+                    <div style="background:#fff7ed;border-radius:8px;padding:10px;text-align:center"><div class="text-xs text-gray">TB xuất/tháng</div><div class="font-bold text-orange">217 phiếu</div></div>
+                    <div style="background:#eff6ff;border-radius:8px;padding:10px;text-align:center"><div class="text-xs text-gray">Tỷ lệ xuất/nhập</div><div class="font-bold text-blue">57%</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top items -->
+        <div class="card">
+            <div class="card-header">Vật tư biến động nhiều nhất</div>
+            <div class="card-body">
+                @for (int i = 0; i < Math.Min(5, topItems.Count); i++)
+                {
+                    var item = topItems[i]; var rank = i + 1;
+                    <div class="flex items-center gap-8 mb-12">
+                        <span style="width:20px;height:20px;background:#f1f5f9;border-radius:50%;font-size:11px;font-weight:700;color:#64748b;display:flex;align-items:center;justify-content:center;flex-shrink:0">@rank</span>
+                        <div class="flex-1" style="min-width:0">
+                            <div class="text-sm font-bold truncate">@item.Name</div>
+                            <div class="text-xs text-gray font-mono">@item.Code</div>
+                            <div class="flex gap-12 mt-4">
+                                <span class="text-xs text-green">↑ @(HashRand(item.Code + "in", 4950, 250).ToString("N0"))</span>
+                                <span class="text-xs text-orange">↓ @(HashRand(item.Code + "out", 4950, 50).ToString("N0"))</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Low stock warning table -->
+    <div class="card mb-16">
+        <div class="card-header">
+            <span>Vật tư dưới mức tồn kho tối thiểu</span>
+            <span class="text-xs text-red font-bold">@allMaterials.Count(m => m.Status != "Bình thường") mặt hàng cần chú ý</span>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead><tr>
+                    <th>Mã VT</th><th>Tên vật tư</th><th>Danh mục</th>
+                    <th>Tồn hiện tại</th><th>Tồn tối thiểu</th><th>Thiếu</th><th>Trạng thái</th>
+                </tr></thead>
+                <tbody>
+                    @if (allMaterials.All(m => m.Status == "Bình thường"))
+                    {
+                        <tr><td colspan="7" class="empty-state">Tất cả vật tư đều đủ tồn kho ✅</td></tr>
+                    }
+                    @foreach (var m in allMaterials.Where(m => m.Status != "Bình thường"))
+                    {
+                        <tr>
+                            <td class="td-code">@m.Code</td>
+                            <td class="td-bold">@m.Name</td>
+                            <td class="text-gray">@m.Category</td>
+                            <td class="td-red">@m.Quantity.ToString("N0") @m.Unit.Split(' ')[0]</td>
+                            <td class="text-gray">@m.MinQuantity</td>
+                            <td class="td-red">@(Math.Max(0, m.MinQuantity - m.Quantity))</td>
+                            <td><span class="badge @(m.Status=="Hết hàng"?"badge-red":"badge-yellow")">@m.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<!-- Audit log -->
+<div class="card">
+    <div class="card-header">
+        <span>Nhật ký hoạt động (Audit Log)</span>
+        <span class="text-xs text-gray">@auditLog.Count hoạt động</span>
+    </div>
+    <div class="table-wrapper" style="max-height:400px;overflow-y:auto">
+        <table>
+            <thead><tr><th>Thời gian</th><th>Hành động</th><th>Nội dung</th><th>Người thực hiện</th><th>Loại</th></tr></thead>
+            <tbody>
+                @if (!auditLog.Any())
+                {
+                    <tr><td colspan="5" class="empty-state">Chưa có hoạt động nào — thực hiện thêm/sửa/xóa để xem nhật ký.</td></tr>
+                }
+                @foreach (var log in auditLog)
+                {
+                    <tr>
+                        <td class="font-mono text-gray" style="white-space:nowrap">@log.Time.ToString("dd/MM/yyyy HH:mm")</td>
+                        <td class="font-bold" style="white-space:nowrap">@log.Action</td>
+                        <td class="text-gray truncate" style="max-width:300px">@log.Item</td>
+                        <td class="text-gray" style="white-space:nowrap">@log.User</td>
+                        <td><span class="badge @LogBadge(log.Type)">@LogLabel(log.Type)</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    DashboardStats? stats;
+    List<Material> topItems = [];
+    List<Material> allMaterials = [];
+    List<Transaction> allTx = [];
+    List<AuditLog> auditLog = [];
+
+    record MonthData(string Month, int Import, int Export);
+    List<MonthData> monthlyData = [
+        new("T10",320,180), new("T11",410,220), new("T12",280,160),
+        new("T1",390,240), new("T2",360,190), new("T3",520,310),
+    ];
+    int maxVal => monthlyData.Max(d => Math.Max(d.Import, d.Export));
+
+    int txCount(string type) => allTx.Count(t => t.Type == type);
+
+    static int HashRand(string s, int max, int min)
+    {
+        unchecked
+        {
+            int h = 0;
+            foreach (var c in s) h = h * 31 + c;
+            return Math.Abs(h) % max + min;
+        }
+    }
+
+    static string LogBadge(string t) => t switch { "add" => "badge-green", "edit" => "badge-blue", "remove" => "badge-yellow", _ => "badge-red" };
+    static string LogLabel(string t) => t switch { "add" => "Thêm mới", "edit" => "Chỉnh sửa", "remove" => "Xuất kho", _ => "Xóa" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        stats = await Svc.GetDashboardStatsAsync();
+        allMaterials = await Svc.GetMaterialsAsync();
+        allTx = await Svc.GetTransactionsAsync();
+        topItems = allMaterials.Take(5).ToList();
+        auditLog = await Svc.GetAuditLogsAsync(200);
+    }
+
+    async Task ExportMaterials()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Mã VT,Tên vật tư,Danh mục,ĐVT,Tồn kho,Tồn tối thiểu,Đơn giá,Giá trị tồn,Trạng thái,Vị trí,Nhà cung cấp");
+        foreach (var m in allMaterials)
+        {
+            sb.AppendLine($"\"{m.Code}\",\"{m.Name}\",\"{m.Category}\",\"{m.Unit}\",{m.Quantity},{m.MinQuantity},{m.Price},{m.Quantity * m.Price},\"{m.Status}\",\"{m.Location}\",\"{m.Supplier}\"");
+        }
+        await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,%EF%BB%BF' + encodeURIComponent(`{sb.ToString()}`); a.download = 'BaoCaoTonKho_{DateTime.Now:yyyy-MM-dd}.csv'; a.click();");
+    }
+
+    async Task ExportTransactions()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Mã phiếu,Loại,Ngày,Số VT,Giá trị (đ),Kho,Người lập,Ghi chú,Trạng thái");
+        foreach (var t in allTx)
+        {
+            sb.AppendLine($"\"{t.TransactionId}\",\"{t.Type}\",\"{t.Date:dd/MM/yyyy HH:mm}\",{t.ItemCount},{t.TotalValue},\"{t.Warehouse}\",\"{t.User}\",\"{t.Note}\",\"{t.Status}\"");
+        }
+        await JS.InvokeVoidAsync("eval", $"const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,%EF%BB%BF' + encodeURIComponent(`{sb.ToString()}`); a.download = 'BaoCaoGiaoDich_{DateTime.Now:yyyy-MM-dd}.csv'; a.click();");
+    }
+
+    static string Q(string s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
+}

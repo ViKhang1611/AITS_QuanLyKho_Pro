@@ -1,0 +1,181 @@
+@page "/nhacungcap"
+@rendermode InteractiveServer
+@inject WarehouseService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Nhà cung cấp - AITS Quản Lý Kho</PageTitle>
+
+<!-- Stats -->
+<div class="grid grid-4 mb-16">
+    <div class="stat-card"><div><div class="stat-label">Tổng nhà cung cấp</div><div class="stat-value">@all.Count</div><div class="stat-sub">@cats.Length ngành hàng</div></div><div class="stat-icon icon-blue">👥</div></div>
+    <div class="stat-card"><div><div class="stat-label">Đang hợp tác</div><div class="stat-value">@all.Count(s=>s.Status=="Đang hợp tác")</div><div class="stat-sub">@((all.Count==0?0:all.Count(s=>s.Status=="Đang hợp tác")*100/all.Count))% tổng số</div></div><div class="stat-icon icon-green">✅</div></div>
+    <div class="stat-card"><div><div class="stat-label">Tạm dừng</div><div class="stat-value">@all.Count(s=>s.Status=="Tạm dừng")</div><div class="stat-sub">Cần xem xét lại</div></div><div class="stat-icon icon-orange">⏸️</div></div>
+    <div class="stat-card"><div><div class="stat-label">Tổng đơn hàng</div><div class="stat-value">@all.Sum(s=>s.TotalOrders)</div><div class="stat-sub">Tất cả thời gian</div></div><div class="stat-icon icon-purple">📦</div></div>
+</div>
+
+<!-- Filter -->
+<div class="filter-bar">
+    <input type="text" placeholder="🔍 Tìm theo tên, email, số điện thoại, người liên hệ..." @bind="search" @bind:event="oninput" style="min-width:280px" />
+    <select @bind="filterCat"><option value="">Tất cả ngành hàng</option>@foreach(var c in cats){<option>@c</option>}</select>
+    <select @bind="filterStatus"><option value="">Tất cả trạng thái</option><option>Đang hợp tác</option><option>Tạm dừng</option></select>
+    <button class="btn btn-primary ml-auto" @onclick="OpenAdd">+ Thêm nhà cung cấp</button>
+</div>
+
+<!-- Cards -->
+@if (!filtered.Any()) { <div class="empty-state">Không tìm thấy nhà cung cấp nào</div> }
+@foreach (var s in filtered)
+{
+    <div class="supplier-card">
+        <div class="flex gap-16 items-start">
+            <div class="supplier-avatar">@s.Name[0]</div>
+            <div class="flex-1">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="flex items-center gap-8">
+                            <span style="font-size:14px;font-weight:700">@s.Name</span>
+                            <span class="badge @(s.Status=="Đang hợp tác"?"badge-green":"badge-gray")">@s.Status</span>
+                            <span class="chip chip-blue" style="padding:2px 8px;font-size:10px">@s.Category</span>
+                        </div>
+                        <div class="text-xs text-gray mt-4">Mã: @s.SupplierId • Liên hệ: @s.Contact</div>
+                    </div>
+                    <div class="stars">@for(int i=1;i<=5;i++){<span style="color:@(i<=s.Rating?"#fbbf24":"#e2e8f0")">★</span>}</div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
+                    <div class="text-xs text-gray flex gap-4 items-center">📞 @s.Phone</div>
+                    <div class="text-xs text-gray flex gap-4 items-center truncate">✉️ @s.Email</div>
+                    <div class="text-xs text-gray flex gap-4 items-center" style="grid-column:span 2">📍 @s.Address</div>
+                </div>
+                <div class="flex justify-between items-center mt-12">
+                    <div class="flex gap-16">
+                        <div><div class="text-xs text-gray">Tổng đơn</div><div class="font-bold">@s.TotalOrders</div></div>
+                        <div><div class="text-xs text-gray">Giá trị</div><div class="font-bold">@s.TotalValue</div></div>
+                        <div><div class="text-xs text-gray">Đặt gần nhất</div><div class="font-bold">@s.LastOrder</div></div>
+                    </div>
+                    <div class="action-btns">
+                        <button class="action-btn" title="Xem chi tiết" @onclick="()=>OpenView(s)">👁️</button>
+                        <button class="action-btn" title="Chỉnh sửa" @onclick="()=>OpenEdit(s)">✏️</button>
+                        <button class="action-btn" title="Xóa" @onclick="()=>Delete(s)">🗑️</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Add/Edit Modal -->
+@if (showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-title">@(editId == 0 ? "Thêm nhà cung cấp mới" : "Chỉnh sửa nhà cung cấp")</div>
+            <div class="form-group mb-12"><label class="field-label">Tên công ty *</label><input type="text" @bind="form.Name" placeholder="Công ty TNHH..." /></div>
+            <div class="form-row mb-12">
+                <div class="form-group"><label class="field-label">Người liên hệ</label><input type="text" @bind="form.Contact" /></div>
+                <div class="form-group"><label class="field-label">Số điện thoại</label><input type="text" @bind="form.Phone" placeholder="028 xxxx xxxx" /></div>
+            </div>
+            <div class="form-row mb-12">
+                <div class="form-group"><label class="field-label">Email</label><input type="email" @bind="form.Email" /></div>
+                <div class="form-group"><label class="field-label">Địa chỉ</label><input type="text" @bind="form.Address" placeholder="Quận/Huyện, Tỉnh/TP" /></div>
+            </div>
+            <div class="form-row mb-12">
+                <div class="form-group"><label class="field-label">Ngành hàng</label>
+                    <select @bind="form.Category">@foreach(var c in cats){<option>@c</option>}</select>
+                </div>
+                <div class="form-group"><label class="field-label">Đánh giá (1-5 sao)</label>
+                    <select @bind="form.Rating">@for(int r=1;r<=5;r++){var rv=r;<option value="@rv">@rv ⭐</option>}</select>
+                </div>
+            </div>
+            <div class="form-group"><label class="field-label">Trạng thái</label>
+                <select @bind="form.Status"><option>Đang hợp tác</option><option>Tạm dừng</option></select>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseModal">Hủy</button>
+                <button class="btn btn-primary" @onclick="Save" disabled="@string.IsNullOrWhiteSpace(form.Name)">@(editId == 0 ? "Thêm nhà cung cấp" : "Lưu thay đổi")</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- View Modal -->
+@if (viewSup != null)
+{
+    <div class="modal-overlay" @onclick="CloseView">
+        <div class="modal" @onclick:stopPropagation="true" style="min-width:420px">
+            <div class="modal-title">Chi tiết nhà cung cấp</div>
+            <div style="background:#eff6ff;border-radius:10px;padding:14px;margin-bottom:14px;display:flex;gap:14px;align-items:center">
+                <div class="supplier-avatar" style="background:#2563eb;color:#fff;width:56px;height:56px;font-size:24px">@viewSup.Name[0]</div>
+                <div>
+                    <div style="font-weight:700">@viewSup.Name</div>
+                    <div class="text-xs text-gray">@viewSup.SupplierId • @viewSup.Category</div>
+                    <div class="stars mt-4">@for(int i=1;i<=5;i++){<span style="color:@(i<=viewSup.Rating?"#fbbf24":"#e2e8f0")">★</span>}</div>
+                </div>
+            </div>
+            @{
+                var rows = new (string K, string V)[] {
+                    ("Người liên hệ", viewSup.Contact),
+                    ("Số điện thoại", viewSup.Phone),
+                    ("Email", viewSup.Email),
+                    ("Địa chỉ", viewSup.Address),
+                    ("Trạng thái", viewSup.Status),
+                    ("Tổng đơn hàng", viewSup.TotalOrders.ToString()),
+                    ("Tổng giá trị", viewSup.TotalValue),
+                    ("Đặt hàng gần nhất", viewSup.LastOrder),
+                };
+            }
+            @foreach (var (k, v) in rows)
+            {
+                <div class="flex justify-between" style="padding:8px 0;border-bottom:1px solid #f1f5f9">
+                    <span class="text-xs text-gray">@k</span>
+                    <span class="text-xs font-bold">@v</span>
+                </div>
+            }
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseView">Đóng</button>
+                <button class="btn btn-primary" @onclick="EditFromView">Chỉnh sửa</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    List<SupplierModel> all = [];
+    string search = "", filterCat = "", filterStatus = "";
+    bool showModal;
+    int editId;
+    SupplierModel form = new();
+    SupplierModel? viewSup;
+    static readonly string[] cats = ["VLXD","Thép","Vật tư điện","Vật tư cơ khí","Phụ kiện","Hóa chất","Thiết bị","Khác"];
+
+    List<SupplierModel> filtered => all.Where(s =>
+        (string.IsNullOrEmpty(search) || s.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || s.Phone.Contains(search) || s.Email.Contains(search, StringComparison.OrdinalIgnoreCase) || s.Contact.Contains(search, StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrEmpty(filterCat) || s.Category == filterCat) &&
+        (string.IsNullOrEmpty(filterStatus) || s.Status == filterStatus)
+    ).ToList();
+
+    protected override async Task OnInitializedAsync() => await Reload();
+    async Task Reload() => all = await Svc.GetSuppliersAsync();
+
+    void OpenAdd() { form = new SupplierModel { Status = "Đang hợp tác", Rating = 3, Category = cats[0] }; editId = 0; showModal = true; }
+    void OpenEdit(SupplierModel s) { form = new SupplierModel { Id=s.Id, SupplierId=s.SupplierId, Name=s.Name, Contact=s.Contact, Phone=s.Phone, Email=s.Email, Address=s.Address, Category=s.Category, Rating=s.Rating, Status=s.Status, TotalOrders=s.TotalOrders, TotalValue=s.TotalValue, LastOrder=s.LastOrder }; editId = s.Id; showModal = true; }
+    void OpenView(SupplierModel s) { viewSup = s; }
+    void CloseView() { viewSup = null; }
+    void CloseModal() { showModal = false; }
+    void EditFromView() { var s = viewSup; viewSup = null; if (s != null) OpenEdit(s); }
+
+    async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(form.Name)) return;
+        if (editId == 0) await Svc.AddSupplierAsync(form);
+        else { form.Id = editId; await Svc.UpdateSupplierAsync(form); }
+        await Reload();
+        CloseModal();
+    }
+
+    async Task Delete(SupplierModel s)
+    {
+        var ok = await JS.InvokeAsync<bool>("appJs.confirm", $"Xóa nhà cung cấp \"{s.Name}\"?");
+        if (!ok) return;
+        await Svc.DeleteSupplierAsync(s.Id);
+        await Reload();
+    }
+}

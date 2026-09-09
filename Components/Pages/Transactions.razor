@@ -1,0 +1,1244 @@
+@page "/giaodich"
+@rendermode InteractiveServer
+@inject WarehouseService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Giao dịch - AITS Quản Lý Kho</PageTitle>
+
+<div class="page-header">
+    <h1 class="page-title">📋 Quản lý nhập / xuất / chuyển kho</h1>
+    <div class="flex gap-8">
+        <button class="btn btn-blue" @onclick='()=>OpenForm("Chuyển kho")'>🔄 Lập phiếu chuyển kho</button>
+        <button class="btn btn-orange" @onclick='()=>OpenForm("Xuất kho")'>📉 Lập phiếu xuất</button>
+        <button class="btn btn-green" @onclick='()=>OpenForm("Nhập kho")'>📈 Lập phiếu nhập</button>
+    </div>
+</div>
+
+<!-- Stats row -->
+<div class="grid grid-4 mb-16">
+    <div style="background:#f0fdf4;border-radius:10px;padding:16px">
+        <div class="text-xs text-gray">Tổng nhập</div>
+        <div style="font-size:18px;font-weight:700;color:#16a34a">₫ @((all.Where(t=>t.Type=="Nhập kho").Sum(t=>t.TotalValue)/1_000_000m).ToString("F1"))M</div>
+    </div>
+    <div style="background:#fff7ed;border-radius:10px;padding:16px">
+        <div class="text-xs text-gray">Tổng xuất</div>
+        <div style="font-size:18px;font-weight:700;color:#ea580c">₫ @((all.Where(t=>t.Type=="Xuất kho").Sum(t=>t.TotalValue)/1_000_000m).ToString("F1"))M</div>
+    </div>
+    <div style="background:#eff6ff;border-radius:10px;padding:16px">
+        <div class="text-xs text-gray">Tổng chuyển kho</div>
+        <div style="font-size:18px;font-weight:700;color:#2563eb">@all.Count(t=>t.Type=="Chuyển kho") phiếu</div>
+    </div>
+    <div style="background:#f8fafc;border-radius:10px;padding:16px">
+        <div class="text-xs text-gray">Tổng phiếu</div>
+        <div style="font-size:18px;font-weight:700;color:#0f172a">@all.Count phiếu</div>
+    </div>
+</div>
+
+<!-- Table -->
+<div class="card">
+    <div class="card-header">
+        <span>Lịch sử giao dịch kho</span>
+        <div class="flex gap-8 items-center">
+            <input type="text" placeholder="🔍 Tìm phiếu, vật tư, ghi chú..." @bind="search" @bind:event="oninput" style="width:240px;padding:5px 10px;font-size:12px" />
+            <select @bind="filterType" style="width:130px;padding:5px 10px;font-size:12px">
+                <option value="">Tất cả loại</option>
+                <option>Nhập kho</option>
+                <option>Xuất kho</option>
+                <option>Chuyển kho</option>
+            </select>
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Mã phiếu</th>
+                    <th>Loại</th>
+                    <th>Ngày</th>
+                    <th>Danh sách vật tư</th>
+                    <th class="text-center">Số loại VT</th>
+                    <th>Tổng giá trị</th>
+                    <th>Kho / Vận chuyển</th>
+                    <th>Người lập</th>
+                    <th>Ghi chú</th>
+                    <th>Trạng thái</th>
+                    <th>Hành động</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!filtered.Any())
+                {
+                    <tr><td colspan="11" class="empty-state">Không có giao dịch nào</td></tr>
+                }
+                @foreach (var t in filtered)
+                {
+                    var firstItem = t.Items.FirstOrDefault();
+                    var itemSummary = t.Items.Count == 1 
+                        ? $"{firstItem?.MaterialName} ({firstItem?.Quantity:N0} {firstItem?.Unit})"
+                        : (t.Items.Count > 1 
+                            ? $"{firstItem?.MaterialName} và {t.Items.Count - 1} vật tư khác..." 
+                            : "-");
+                    var badgeClass = t.Type == "Nhập kho" ? "text-green" : (t.Type == "Xuất kho" ? "text-orange" : "text-blue");
+                    var typeIcon = t.Type == "Nhập kho" ? "📈" : (t.Type == "Xuất kho" ? "📉" : "🔄");
+                    <tr>
+                        <td class="td-code font-mono">@t.TransactionId</td>
+                        <td>
+                            <span class="@badgeClass font-bold">
+                                @typeIcon @t.Type
+                            </span>
+                        </td>
+                        <td class="text-gray">@t.Date.ToString("dd/MM/yyyy HH:mm")</td>
+                        <td class="font-bold truncate" style="max-width:220px" title="@string.Join(", ", t.Items.Select(i=>i.MaterialName))">
+                            @itemSummary
+                        </td>
+                        <td class="text-center font-bold">@t.ItemCount</td>
+                        <td class="td-bold">@t.TotalValue.ToString("N0")đ</td>
+                        <td>@t.Warehouse</td>
+                        <td>@t.User</td>
+                        <td class="truncate text-gray" style="max-width:140px">@t.Note</td>
+                        <td>
+                            <span class="badge @(t.Status=="Đã duyệt"?"badge-green":"badge-yellow")">
+                                @t.Status
+                            </span>
+                        </td>
+                        <td>
+                            <div class="action-btns">
+                                @if (t.Status == "Chờ duyệt" && Svc.IsAdmin)
+                                {
+                                    <button class="action-btn" @onclick="()=>Approve(t.Id)" title="Duyệt phiếu &amp; Cập nhật tồn kho">✅ Duyệt</button>
+                                }
+                                <button class="action-btn" title="Xem trước &amp; In phiếu" @onclick="()=>OpenPrintPreview(t)">🖨️ In</button>
+                                <button class="action-btn" title="Xóa phiếu" @onclick="()=>OpenDeleteTxConfirm(t)">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Delete Transaction Confirm Modal -->
+@if (showDeleteTxModal && deleteTxTarget != null)
+{
+    <div class="modal-overlay" @onclick="CloseDeleteTxModal">
+        <div class="modal text-center" style="max-width:420px" @onclick:stopPropagation="true">
+            <div class="modal-title text-red" style="font-size:18px">🗑️ Xác nhận xóa phiếu</div>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;margin:12px 0;color:#991b1b;font-size:13px">
+                Bạn có chắc muốn xóa phiếu <strong>@deleteTxTarget.TransactionId</strong>
+                (@deleteTxTarget.Type — @deleteTxTarget.Date.ToString("dd/MM/yyyy"))? Thao tác này không thể hoàn tác.
+            </div>
+            <div class="modal-footer justify-between">
+                <button class="btn btn-outline" @onclick="CloseDeleteTxModal">Hủy</button>
+                <button class="btn" style="background:#dc2626;color:#fff" @onclick="()=>Delete(deleteTxTarget)">Xác nhận xóa</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Form Modal -->
+@if (showForm)
+{
+    <div class="modal-overlay" @onclick="CloseForm">
+        <div class="modal" style="max-width:1200px;width:95%" @onclick:stopPropagation="true">
+            <div class="modal-title" style="color:@(formType=="Nhập kho"?"#16a34a":(formType=="Xuất kho"?"#ea580c":"#2563eb"))">
+                @(formType=="Nhập kho"?"📈 Lập phiếu nhập kho multi-item":(formType=="Xuất kho"?"📉 Lập phiếu xuất kho multi-item":"🔄 Lập phiếu chuyển kho nội bộ"))
+            </div>
+
+            <div class="form-row mb-12">
+                @if (formType == "Chuyển kho")
+                {
+                    <div class="form-group" style="grid-column:span 2">
+                        <label class="field-label" style="font-weight:700;color:#2563eb">🔄 Chuyển từ: Khu vực nguồn → Kệ (tùy chọn) → Tầng (tùy chọn) → Ô (tùy chọn)</label>
+                        <div class="flex gap-8">
+                            <select value="@topFromZoneId" @onchange="OnTopFromZoneChanged" style="flex:1" title="Khu vực nguồn">
+                                <option value="0">-- Chọn Khu Nguồn --</option>
+                                @foreach (var z in zones)
+                                {
+                                    <option value="@z.Id">Khu @z.Code - @z.Name</option>
+                                }
+                            </select>
+                            <select value="@topFromRackId" @onchange="OnTopFromRackChanged" style="flex:1" disabled="@(topFromZoneId == 0)" title="Kệ nguồn">
+                                <option value="0">-- Tất cả Kệ --</option>
+                                @foreach (var r in GetRacksForZone(topFromZoneId))
+                                {
+                                    <option value="@r.Id">Kệ @r.Code</option>
+                                }
+                            </select>
+                            <select value="@topFromShelfId" @onchange="OnTopFromShelfChanged" style="flex:1" disabled="@(topFromRackId == 0)" title="Tầng nguồn">
+                                <option value="0">-- Tất cả Tầng --</option>
+                                @foreach (var s in GetShelvesForRack(topFromRackId))
+                                {
+                                    <option value="@s.Id">Tầng @s.Level</option>
+                                }
+                            </select>
+                            <select value="@topFromCellId" @onchange="OnTopFromCellChanged" style="flex:1.2" disabled="@(topFromShelfId == 0)" title="Ô nguồn">
+                                <option value="0">-- Tất cả Ô --</option>
+                                @foreach (var c in GetCellsForShelf(topFromShelfId))
+                                {
+                                    <option value="@c.Id">Ô @c.Position @(c.IsOccupied ? $" ({c.MaterialName})" : " (Trống)")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group" style="grid-column:span 2">
+                        <label class="field-label" style="font-weight:700;color:#2563eb">📍 Chuyển tới: Khu vực đích → Kệ (tùy chọn) → Tầng (tùy chọn) → Ô (tùy chọn)</label>
+                        <div class="flex gap-8">
+                            <select value="@topToZoneId" @onchange="OnTopToZoneChanged" style="flex:1" title="Khu vực đích">
+                                <option value="0">-- Chọn Khu Đích --</option>
+                                @foreach (var z in zones)
+                                {
+                                    <option value="@z.Id">Khu @z.Code - @z.Name</option>
+                                }
+                            </select>
+                            <select value="@topToRackId" @onchange="OnTopToRackChanged" style="flex:1" disabled="@(topToZoneId == 0)" title="Kệ đích">
+                                <option value="0">-- Tất cả Kệ --</option>
+                                @foreach (var r in GetRacksForZone(topToZoneId))
+                                {
+                                    <option value="@r.Id">Kệ @r.Code</option>
+                                }
+                            </select>
+                            <select value="@topToShelfId" @onchange="OnTopToShelfChanged" style="flex:1" disabled="@(topToRackId == 0)" title="Tầng đích">
+                                <option value="0">-- Tất cả Tầng --</option>
+                                @foreach (var s in GetShelvesForRack(topToRackId))
+                                {
+                                    <option value="@s.Id">Tầng @s.Level</option>
+                                }
+                            </select>
+                            <select value="@topToCellId" @onchange="OnTopToCellChanged" style="flex:1.2" disabled="@(topToShelfId == 0)" title="Ô đích">
+                                <option value="0">-- Tất cả Ô --</option>
+                                @foreach (var c in GetCellsForShelf(topToShelfId))
+                                {
+                                    <option value="@c.Id">Ô @c.Position @(c.IsOccupied ? $" ({c.MaterialName})" : " (Trống)")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+                else if (formType == "Xuất kho")
+                {
+                    <div class="form-group" style="grid-column: span 2">
+                        <label class="field-label" style="font-weight:700;color:#ea580c">
+                            📍 Vị trí xuất kho (Khu vực - Kệ - Tầng - Ô) *
+                        </label>
+                        <div class="flex gap-8">
+                            <select value="@topZoneId" @onchange="OnTopZoneChanged" style="flex:1" title="Chọn Khu vực">
+                                <option value="0">-- Chọn Khu vực --</option>
+                                @foreach (var z in zones)
+                                {
+                                    <option value="@z.Id">Khu @z.Code - @z.Name</option>
+                                }
+                            </select>
+                            <select value="@topRackId" @onchange="OnTopRackChanged" style="flex:1" disabled="@(topZoneId == 0)" title="Chọn Kệ">
+                                <option value="0">-- Chọn Kệ --</option>
+                                @foreach (var r in GetRacksForZone(topZoneId))
+                                {
+                                    <option value="@r.Id">Kệ @r.Code (@r.Name)</option>
+                                }
+                            </select>
+                            <select value="@topShelfId" @onchange="OnTopShelfChanged" style="flex:1" disabled="@(topRackId == 0)" title="Chọn Tầng">
+                                <option value="0">-- Chọn Tầng --</option>
+                                @foreach (var s in GetShelvesForRack(topRackId))
+                                {
+                                    <option value="@s.Id">Tầng @s.Level</option>
+                                }
+                            </select>
+                            <select value="@topCellId" @onchange="OnTopCellChanged" style="flex:1.2" disabled="@(topShelfId == 0)" title="Chọn Ô">
+                                <option value="0">-- Chọn Ô --</option>
+                                @foreach (var c in GetCellsForShelf(topShelfId))
+                                {
+                                    <option value="@c.Id">Ô @c.Position @(c.IsOccupied ? $" ({c.MaterialName})" : " (Trống)")</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label class="field-label">Khu vực nhập *</label>
+                        <select value="@topZoneId" @onchange="OnTopZoneChanged">
+                            @foreach (var z in zones)
+                            {
+                                <option value="@z.Id">Khu @z.Code - @z.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label class="field-label">Người lập phiếu *</label>
+                    <input type="text" @bind="newTx.User" placeholder="Họ tên người lập" />
+                </div>
+                <div class="form-group">
+                    <label class="field-label">Số PO / Lệnh chuyển</label>
+                    <input type="text" @bind="poNumber" placeholder="VD: PO-2026-0145" />
+                </div>
+            </div>
+
+            <div class="form-group mb-12">
+                <label class="field-label">Ghi chú giao dịch</label>
+                <input type="text" @bind="newTx.Note" placeholder="Nhập ghi chú giao dịch..." />
+            </div>
+
+            <!-- Multi-item table section -->
+            <div class="card p-12 mb-12" style="background:#f8fafc;border:1px solid #e2e8f0">
+                <div class="flex justify-between items-center mb-8">
+                    <div style="font-weight:700;font-size:14px;color:#334155">
+                        📦 Danh sách vật tư giao dịch (@newTx.Items.Count)
+                    </div>
+                    <button type="button" class="btn btn-blue text-xs" @onclick="AddItemRow">
+                        ➕ Thêm vật tư
+                    </button>
+                </div>
+
+                <div class="table-wrapper" style="max-height:340px;overflow-y:auto">
+                    <table style="font-size:12px;width:100%">
+                        <thead>
+                            <tr>
+                                <th style="width:35px">#</th>
+                                <th style="min-width:220px">Vật tư *</th>
+                                @if (formType == "Chuyển kho")
+                                {
+                                    <th style="min-width:160px">📤 Ô nguồn</th>
+                                    <th style="min-width:160px">📥 Ô đích</th>
+                                }
+                                else
+                                {
+                                    <th style="@(formType == "Xuất kho" ? "width:180px" : "min-width:320px")">
+                                        📍 Vị trí Kệ - Tầng - Ô @(formType == "Xuất kho" ? "(Cố định)" : "(Kệ | Tầng | Ô)")
+                                    </th>
+                                }
+                                <th style="width:75px">ĐVT</th>
+                                <th style="width:90px">Số lượng *</th>
+                                <th style="width:110px">Lô hàng</th>
+                                <th style="width:120px">Đơn giá (đ)</th>
+                                <th style="width:130px;text-align:right">Thành tiền (đ)</th>
+                                <th style="width:40px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < newTx.Items.Count; i++)
+                            {
+                                var index = i;
+                                var item = newTx.Items[index];
+                                <tr>
+                                    <td>@(index + 1)</td>
+                                    <td>
+                                        <select value="@item.MaterialId" @onchange="(e)=>OnMaterialRowChanged(item, e)" style="font-weight:600;width:100%">
+                                            @if (!GetMaterialsForSelection(item).Any())
+                                            {
+                                                <option value="0">-- Ô này chưa có vật tư --</option>
+                                            }
+                                            @foreach (var m in GetMaterialsForSelection(item))
+                                            {
+                                                <option value="@m.Id">@m.Code - @m.Name (Tồn: @m.Quantity @m.Unit)</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td>
+                                        @if (formType == "Xuất kho")
+                                        {
+                                            <input type="text" disabled value="@(string.IsNullOrEmpty(item.TargetCellLocation) ? "Chưa chọn ô xuất" : item.TargetCellLocation)" style="font-size:12px;width:100%;background:#f1f5f9;color:#475569;font-weight:600;border:1px solid #cbd5e1;padding:4px 6px" title="Vị trí xuất kho cố định theo lựa chọn ở trên" />
+                                        }
+                                        else if (formType == "Chuyển kho")
+                                        {
+                                            @* Ô nguồn: cố định theo topFromCellId *@
+                                            <input type="text" disabled value="@(string.IsNullOrEmpty(item.SourceCellLocation) ? "Chọn ô nguồn ở trên" : item.SourceCellLocation)" style="font-size:11px;width:100%;background:#fef3c7;color:#92400e;font-weight:600;border:1px solid #fde68a;padding:4px 6px" title="Ô nguồn (xuất từ đây)" />
+                                        }
+                                        else
+                                        {
+                                            <div class="flex gap-4 w-full">
+                                                <select value="@GetSelectedRackId(item)" @onchange="(e)=>OnRackRowChanged(item, e)" style="font-size:11px;flex:1;padding:4px 2px" title="Chọn Kệ trong Khu vực">
+                                                    <option value="0">-- Kệ --</option>
+                                                    @foreach (var r in GetRacksForZone(topZoneId))
+                                                    {
+                                                        <option value="@r.Id">Kệ @r.Code (@r.Name)</option>
+                                                    }
+                                                </select>
+                                                <select value="@GetSelectedShelfId(item)" @onchange="(e)=>OnShelfRowChanged(item, e)" style="font-size:11px;flex:1;padding:4px 2px" disabled="@(GetSelectedRackId(item) == 0)" title="Chọn Tầng">
+                                                    <option value="0">-- Tầng --</option>
+                                                    @foreach (var s in GetShelvesForRack(GetSelectedRackId(item)))
+                                                    {
+                                                        <option value="@s.Id">Tầng @s.Level</option>
+                                                    }
+                                                </select>
+                                                <select value="@(item.TargetCellId ?? 0)" @onchange="(e)=>OnCellSelected(item, e)" style="font-size:11px;flex:1.2;padding:4px 2px" disabled="@(GetSelectedShelfId(item) == 0)" title="Chọn Ô">
+                                                    <option value="0">-- Ô --</option>
+                                                    @foreach (var c in GetCellsForShelf(GetSelectedShelfId(item)))
+                                                    {
+                                                        <option value="@c.Id">Ô @c.Position @(c.IsOccupied ? $" ({c.MaterialName})" : " (Trống)")</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        }
+                                    </td>
+                                    @if (formType == "Chuyển kho")
+                                    {
+                                        <td>
+                                            @* Ô đích: tự động cập nhật theo lựa chọn vị trí đích ở trên (hiển thị dạng badge tương tự Ô NGUỒN) *@
+                                            <input type="text" disabled value="@(string.IsNullOrEmpty(item.TargetCellLocation) ? "Chọn vị trí đích ở trên" : item.TargetCellLocation)" style="font-size:11px;width:100%;background:#e0f2fe;color:#0369a1;font-weight:600;border:1px solid #bae6fd;padding:4px 6px" title="Vị trí đích (chuyển tới đây)" />
+                                        </td>
+                                    }
+                                    <td class="text-gray">@item.Unit</td>
+                                    <td>
+                                        <input type="number" min="1" @bind="item.Quantity" @bind:event="oninput" style="padding:4px 6px" />
+                                    </td>
+                                    <td>
+                                        <input type="text" @bind="item.BatchNumber" placeholder="Mã lô" style="padding:4px 6px" />
+                                    </td>
+                                    <td>
+                                        <input type="number" min="0" @bind="item.UnitPrice" @bind:event="oninput" style="padding:4px 6px" />
+                                    </td>
+                                    <td class="font-bold text-right" style="padding-right:8px">
+                                        @((item.Quantity * item.UnitPrice).ToString("N0"))đ
+                                    </td>
+                                    <td>
+                                        @if (newTx.Items.Count > 1)
+                                        {
+                                            <button type="button" class="action-btn text-red" @onclick="()=>RemoveItemRow(index)" title="Xóa dòng">🗑️</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="flex justify-between items-center mt-8 pt-8" style="border-top:1px dashed #cbd5e1">
+                    <span class="text-xs text-gray">Số loại vật tư: <b>@newTx.Items.Count</b></span>
+                    <div style="font-size:15px;font-weight:700;color:#0f172a">
+                        TỔNG GIÁ TRỊ: <span style="color:@(formType=="Nhập kho"?"#16a34a":(formType=="Xuất kho"?"#ea580c":"#2563eb"))">@(newTx.Items.Sum(x => x.Quantity * x.UnitPrice).ToString("N0")) ₫</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-outline" @onclick="CloseForm">Hủy</button>
+                <button class="btn @(formType=="Nhập kho"?"btn-green":(formType=="Xuất kho"?"btn-orange":"btn-blue"))" @onclick="Submit">
+                    Xác nhận @formType
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Print Preview Modal -->
+@if (showPrintModal && selectedTxPrint != null)
+{
+    <div class="modal-overlay" @onclick="ClosePrintModal">
+        <div class="modal" style="max-width:760px;width:95%" @onclick:stopPropagation="true">
+            <div class="modal-title flex justify-between items-center" style="border-bottom:1px solid #e2e8f0;padding-bottom:10px;margin-bottom:14px">
+                <span style="font-weight:700;font-size:15px">📄 Xem trước Phiếu in Giao dịch</span>
+                <span class="text-xs text-gray" style="cursor:pointer;font-weight:600" @onclick="ClosePrintModal">✖ Đóng</span>
+            </div>
+
+            <div style="border:1px solid #cbd5e1;padding:16px;border-radius:8px;background:#fff;max-height:480px;overflow-y:auto">
+                @((MarkupString)BuildSlipHtml(selectedTxPrint))
+            </div>
+
+            <div class="modal-footer justify-between mt-12 pt-10" style="border-top:1px solid #e2e8f0">
+                <button class="btn btn-outline" @onclick="ClosePrintModal">Hủy</button>
+                <button class="btn btn-blue" @onclick="ConfirmPrint">
+                    🖨️ Xác nhận In Phiếu
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    List<Transaction> all = [];
+    List<Material> materials = [];
+    List<CellLocationItem> cellLocations = [];
+    List<StorageZone> zones = [];
+    string search = "", filterType = "";
+    bool showForm;
+    bool showPrintModal;
+    Transaction? selectedTxPrint;
+    string formType = "Nhập kho", poNumber = "";
+    string fromWarehouse = "Kho A", toWarehouse = "Kho B";
+    Transaction newTx = new();
+
+    int topZoneId = 0;
+    int topRackId = 0;
+    int topShelfId = 0;
+    int topCellId = 0;
+
+    int topFromZoneId = 0;
+    int topFromRackId = 0;
+    int topFromShelfId = 0;
+    int topFromCellId = 0;
+
+    int topToZoneId = 0;
+    int topToRackId = 0;
+    int topToShelfId = 0;
+    int topToCellId = 0;
+
+    List<Transaction> filtered => all.Where(t =>
+        (string.IsNullOrEmpty(search) 
+            || t.TransactionId.Contains(search, StringComparison.OrdinalIgnoreCase) 
+            || t.Note.Contains(search, StringComparison.OrdinalIgnoreCase) 
+            || t.User.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || t.Items.Any(i => i.MaterialName.Contains(search, StringComparison.OrdinalIgnoreCase) || i.MaterialCode.Contains(search, StringComparison.OrdinalIgnoreCase))) &&
+        (string.IsNullOrEmpty(filterType) || t.Type == filterType)
+    ).ToList();
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    async Task Reload()
+    {
+        all = await Svc.GetTransactionsAsync();
+        materials = await Svc.GetMaterialsAsync();
+        cellLocations = await Svc.GetAllCellLocationsAsync();
+        zones = await Svc.GetZonesAsync();
+    }
+
+    string GetZoneCode(int zoneId)
+    {
+        var z = zones.FirstOrDefault(x => x.Id == zoneId);
+        return z != null ? $"Khu {z.Code}" : "Khu A";
+    }
+
+    List<StorageRack> GetRacksForZone(int zoneId)
+    {
+        if (zoneId <= 0) return [];
+        var z = zones.FirstOrDefault(x => x.Id == zoneId);
+        return z?.Racks ?? [];
+    }
+
+    List<Material> GetMaterialsForSelection(TransactionItem? item = null)
+    {
+        if (formType != "Xuất kho")
+        {
+            return materials;
+        }
+
+        // Đối với phiếu Xuất kho: chỉ hiển thị các vật tư nằm trong ô/vị trí đã chọn
+        int targetCellId = item?.TargetCellId ?? topCellId;
+
+        if (targetCellId > 0)
+        {
+            var (z, r, s, c) = FindLocationByCellId(targetCellId);
+            if (c != null && z != null && r != null && s != null)
+            {
+                var locStr = $"{z.Code} > {r.Code} > {s.Level} > {c.Position}";
+                
+                var cellMaterials = materials.Where(m =>
+                    (c.MaterialId.HasValue && m.Id == c.MaterialId.Value) ||
+                    (!string.IsNullOrEmpty(m.Location) && (m.Location == locStr || m.Location.Contains(locStr))) ||
+                    cellLocations.Any(cl => cl.CellId == targetCellId && cl.MaterialId == m.Id)
+                ).DistinctBy(m => m.Id).ToList();
+
+                if (cellMaterials.Any())
+                    return cellMaterials;
+            }
+        }
+
+        if (topZoneId > 0)
+        {
+            var z = zones.FirstOrDefault(x => x.Id == topZoneId);
+            if (z != null)
+            {
+                var zoneMaterials = materials.Where(m =>
+                    !string.IsNullOrEmpty(m.Location) && m.Location.StartsWith(z.Code, StringComparison.OrdinalIgnoreCase)
+                ).ToList();
+
+                if (zoneMaterials.Any())
+                    return zoneMaterials;
+            }
+        }
+
+        return materials;
+    }
+
+    void OnTopZoneChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topZoneId = id;
+            topRackId = 0;
+            topShelfId = 0;
+            topCellId = 0;
+            newTx.Warehouse = GetZoneCode(topZoneId);
+            ResetItemLocationsForZone();
+        }
+    }
+
+    void OnTopRackChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topRackId = id;
+            topShelfId = 0;
+            topCellId = 0;
+        }
+    }
+
+    void OnTopShelfChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topShelfId = id;
+            topCellId = 0;
+        }
+    }
+
+    void OnTopCellChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int cellId) && cellId > 0)
+        {
+            topCellId = cellId;
+            ApplyTopLocationToItems();
+        }
+    }
+
+    (string locStr, List<Material> mats) GetSourceLocationAndMaterials()
+    {
+        if (topFromZoneId <= 0) return ("", materials);
+
+        var zone = zones.FirstOrDefault(z => z.Id == topFromZoneId);
+        if (zone == null) return ("", materials);
+
+        string locPrefix = zone.Code;
+        if (topFromRackId > 0)
+        {
+            var rack = zone.Racks?.FirstOrDefault(r => r.Id == topFromRackId);
+            if (rack != null)
+            {
+                locPrefix = $"{zone.Code} > {rack.Code}";
+                if (topFromShelfId > 0)
+                {
+                    var shelf = rack.Shelves?.FirstOrDefault(s => s.Id == topFromShelfId);
+                    if (shelf != null)
+                    {
+                        locPrefix = $"{zone.Code} > {rack.Code} > {shelf.Level}";
+                        if (topFromCellId > 0)
+                        {
+                            var cell = shelf.Cells?.FirstOrDefault(c => c.Id == topFromCellId);
+                            if (cell != null)
+                            {
+                                locPrefix = $"{zone.Code} > {rack.Code} > {shelf.Level} > {cell.Position}";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        var matchingMats = materials.Where(m =>
+            (!string.IsNullOrEmpty(m.Location) && (m.Location == locPrefix || m.Location.StartsWith(locPrefix))) ||
+            (topFromCellId > 0 && cellLocations.Any(cl => cl.CellId == topFromCellId && cl.MaterialId == m.Id))
+        ).DistinctBy(m => m.Id).ToList();
+
+        return (locPrefix, matchingMats);
+    }
+
+    string GetTargetLocationString()
+    {
+        if (topToZoneId <= 0) return "";
+        var zone = zones.FirstOrDefault(z => z.Id == topToZoneId);
+        if (zone == null) return "";
+
+        string locPrefix = $"Khu {zone.Code}";
+        if (topToRackId > 0)
+        {
+            var rack = zone.Racks?.FirstOrDefault(r => r.Id == topToRackId);
+            if (rack != null)
+            {
+                locPrefix = $"{zone.Code} > {rack.Code}";
+                if (topToShelfId > 0)
+                {
+                    var shelf = rack.Shelves?.FirstOrDefault(s => s.Id == topToShelfId);
+                    if (shelf != null)
+                    {
+                        locPrefix = $"{zone.Code} > {rack.Code} > {shelf.Level}";
+                        if (topToCellId > 0)
+                        {
+                            var cell = shelf.Cells?.FirstOrDefault(c => c.Id == topToCellId);
+                            if (cell != null)
+                            {
+                                locPrefix = $"{zone.Code} > {rack.Code} > {shelf.Level} > {cell.Position}";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return locPrefix;
+    }
+
+    void OnTopFromZoneChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topFromZoneId = id;
+            topFromRackId = 0;
+            topFromShelfId = 0;
+            topFromCellId = 0;
+            ApplyTopFromLocationToItems();
+        }
+    }
+
+    void OnTopFromRackChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topFromRackId = id;
+            topFromShelfId = 0;
+            topFromCellId = 0;
+            ApplyTopFromLocationToItems();
+        }
+    }
+
+    void OnTopFromShelfChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topFromShelfId = id;
+            topFromCellId = 0;
+            ApplyTopFromLocationToItems();
+        }
+    }
+
+    void OnTopFromCellChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int cellId))
+        {
+            topFromCellId = cellId;
+            ApplyTopFromLocationToItems();
+        }
+    }
+
+    void OnTopToZoneChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topToZoneId = id;
+            topToRackId = 0;
+            topToShelfId = 0;
+            topToCellId = 0;
+            ApplyTopToLocationToItems();
+        }
+    }
+
+    void OnTopToRackChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topToRackId = id;
+            topToShelfId = 0;
+            topToCellId = 0;
+            ApplyTopToLocationToItems();
+        }
+    }
+
+    void OnTopToShelfChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int id))
+        {
+            topToShelfId = id;
+            topToCellId = 0;
+            ApplyTopToLocationToItems();
+        }
+    }
+
+    void OnTopToCellChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int cellId))
+        {
+            topToCellId = cellId;
+            ApplyTopToLocationToItems();
+        }
+    }
+
+    void UpdateTransferWarehouseLabel()
+    {
+        var fromLoc = GetSourceLocationAndMaterials().locStr;
+        var toLoc = GetTargetLocationString();
+        newTx.Warehouse = $"{(string.IsNullOrEmpty(fromLoc) ? GetZoneCode(topFromZoneId) : fromLoc)} -> {(string.IsNullOrEmpty(toLoc) ? GetZoneCode(topToZoneId) : toLoc)}";
+        newTx.FromWarehouse = string.IsNullOrEmpty(fromLoc) ? GetZoneCode(topFromZoneId) : fromLoc;
+        newTx.ToWarehouse = string.IsNullOrEmpty(toLoc) ? GetZoneCode(topToZoneId) : toLoc;
+    }
+
+    void ApplyTopFromLocationToItems()
+    {
+        var (locStr, matchingMats) = GetSourceLocationAndMaterials();
+        if (string.IsNullOrEmpty(locStr)) return;
+
+        UpdateTransferWarehouseLabel();
+        newTx.Items.Clear();
+
+        if (matchingMats.Any())
+        {
+            foreach (var mat in matchingMats)
+            {
+                var matchCell = cellLocations.FirstOrDefault(c => c.MaterialId == mat.Id);
+                newTx.Items.Add(new TransactionItem
+                {
+                    MaterialId = mat.Id,
+                    MaterialCode = mat.Code,
+                    MaterialName = mat.Name,
+                    Unit = mat.Unit,
+                    Quantity = mat.Quantity > 0 ? mat.Quantity : 1,
+                    UnitPrice = mat.Price,
+                    BatchNumber = mat.BatchNumber,
+                    SourceCellId = topFromCellId > 0 ? topFromCellId : matchCell?.CellId,
+                    SourceCellLocation = string.IsNullOrEmpty(mat.Location) ? locStr : mat.Location,
+                    TargetCellId = topToCellId > 0 ? topToCellId : null,
+                    TargetCellLocation = GetTargetLocationString()
+                });
+            }
+        }
+        else
+        {
+            AddItemRow();
+        }
+    }
+
+    void ApplyTopToLocationToItems()
+    {
+        var targetLoc = GetTargetLocationString();
+        if (string.IsNullOrEmpty(targetLoc)) return;
+
+        UpdateTransferWarehouseLabel();
+        foreach (var item in newTx.Items)
+        {
+            item.TargetCellId = topToCellId > 0 ? topToCellId : null;
+            item.TargetCellLocation = targetLoc;
+        }
+    }
+
+    void ResetItemLocationsForZone()
+    {
+        foreach (var item in newTx.Items)
+        {
+            item.SelectedRackId = 0;
+            item.SelectedShelfId = 0;
+            item.TargetCellId = null;
+            item.TargetCellLocation = "";
+        }
+    }
+
+    void ApplyTopLocationToItems()
+    {
+        if (topCellId <= 0) return;
+        var (z, r, s, c) = FindLocationByCellId(topCellId);
+        if (z == null || r == null || s == null || c == null) return;
+
+        var locStr = $"{z.Code} > {r.Code} > {s.Level} > {c.Position}";
+
+        var item = newTx.Items.FirstOrDefault();
+        if (item == null) return;
+
+        item.TargetCellId = c.Id;
+        item.TargetCellLocation = locStr;
+
+        var availMats = GetMaterialsForSelection(item);
+        var firstMat = availMats.FirstOrDefault();
+        if (firstMat != null)
+        {
+            item.MaterialId = firstMat.Id;
+            item.MaterialCode = firstMat.Code;
+            item.MaterialName = firstMat.Name;
+            item.Unit = firstMat.Unit;
+            item.UnitPrice = firstMat.Price;
+            item.BatchNumber = firstMat.BatchNumber;
+        }
+        else
+        {
+            item.MaterialId = 0;
+            item.MaterialCode = "";
+            item.MaterialName = "";
+            item.Unit = "";
+            item.UnitPrice = 0;
+            item.BatchNumber = "";
+        }
+    }
+
+    (StorageZone? z, StorageRack? r, StorageShelf? s, StorageCell? c) FindLocationByCellId(int cellId)
+    {
+        foreach (var zone in zones)
+        {
+            foreach (var rack in zone.Racks ?? [])
+            {
+                foreach (var shelf in rack.Shelves ?? [])
+                {
+                    foreach (var cell in shelf.Cells ?? [])
+                    {
+                        if (cell.Id == cellId)
+                            return (zone, rack, shelf, cell);
+                    }
+                }
+            }
+        }
+        return (null, null, null, null);
+    }
+
+    int GetSelectedRackId(TransactionItem item)
+    {
+        if (item.SelectedRackId > 0) return item.SelectedRackId;
+        if (item.TargetCellId.HasValue && item.TargetCellId.Value > 0)
+        {
+            var (_, r, _, _) = FindLocationByCellId(item.TargetCellId.Value);
+            if (r != null) return r.Id;
+        }
+        return 0;
+    }
+
+    int GetSelectedShelfId(TransactionItem item)
+    {
+        if (item.SelectedShelfId > 0) return item.SelectedShelfId;
+        if (item.TargetCellId.HasValue && item.TargetCellId.Value > 0)
+        {
+            var (_, _, s, _) = FindLocationByCellId(item.TargetCellId.Value);
+            if (s != null) return s.Id;
+        }
+        return 0;
+    }
+
+    List<StorageShelf> GetShelvesForRack(int rackId)
+    {
+        if (rackId <= 0) return [];
+        foreach (var z in zones)
+        {
+            var rack = z.Racks?.FirstOrDefault(r => r.Id == rackId);
+            if (rack != null) return rack.Shelves ?? [];
+        }
+        return [];
+    }
+
+    List<StorageCell> GetCellsForShelf(int shelfId)
+    {
+        if (shelfId <= 0) return [];
+        foreach (var z in zones)
+        {
+            foreach (var r in z.Racks ?? [])
+            {
+                var shelf = r.Shelves?.FirstOrDefault(s => s.Id == shelfId);
+                if (shelf != null) return shelf.Cells ?? [];
+            }
+        }
+        return [];
+    }
+
+    void OnRackRowChanged(TransactionItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int rackId))
+        {
+            item.SelectedRackId = rackId;
+            item.SelectedShelfId = 0;
+            item.TargetCellId = null;
+            item.TargetCellLocation = "";
+        }
+    }
+
+    void OnShelfRowChanged(TransactionItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int shelfId))
+        {
+            item.SelectedShelfId = shelfId;
+            item.TargetCellId = null;
+            item.TargetCellLocation = "";
+        }
+    }
+
+    void OnCellSelected(TransactionItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int cellId) && cellId > 0)
+        {
+            item.TargetCellId = cellId;
+            var (z, r, s, c) = FindLocationByCellId(cellId);
+            if (z != null && r != null && s != null && c != null)
+            {
+                item.TargetCellLocation = $"{z.Code} > {r.Code} > {s.Level} > {c.Position}";
+            }
+        }
+        else
+        {
+            item.TargetCellId = null;
+            item.TargetCellLocation = "";
+        }
+    }
+
+    void OpenForm(string type)
+    {
+        formType = type;
+        var firstZone = zones.FirstOrDefault();
+        topZoneId = firstZone?.Id ?? 0;
+        topRackId = 0;
+        topShelfId = 0;
+        topCellId = 0;
+
+        topFromZoneId = firstZone?.Id ?? 0;
+        topFromRackId = 0;
+        topFromShelfId = 0;
+        topFromCellId = 0;
+
+        topToZoneId = zones.Skip(1).FirstOrDefault()?.Id ?? (firstZone?.Id ?? 0);
+        topToRackId = 0;
+        topToShelfId = 0;
+        topToCellId = 0;
+
+        var zoneName = firstZone != null ? $"Khu {firstZone.Code}" : "Khu A";
+
+        newTx = new Transaction
+        {
+            Type = type,
+            Warehouse = type == "Chuyển kho" 
+                ? $"{GetZoneCode(topFromZoneId)} -> {GetZoneCode(topToZoneId)}" 
+                : zoneName,
+            User = Svc.CurrentUser,
+            Items = []
+        };
+        poNumber = "";
+        AddItemRow();
+        showForm = true;
+    }
+
+    void AddItemRow()
+    {
+        var tempItem = new TransactionItem { TargetCellId = topCellId > 0 ? topCellId : null };
+        var availMats = GetMaterialsForSelection(tempItem);
+        var firstMat = availMats.FirstOrDefault();
+
+        if (firstMat != null && firstMat.Id > 0)
+        {
+            var matchCell = cellLocations.FirstOrDefault(c => c.MaterialId == firstMat.Id);
+            var (z, r, s, c) = topCellId > 0 ? FindLocationByCellId(topCellId) : (null, null, null, null);
+            var cellLoc = (z != null && r != null && s != null && c != null)
+                ? $"{z.Code} > {r.Code} > {s.Level} > {c.Position}"
+                : (matchCell?.LocationString ?? (string.IsNullOrEmpty(firstMat.Location) ? "" : firstMat.Location));
+
+            newTx.Items.Add(new TransactionItem
+            {
+                MaterialId = firstMat.Id,
+                MaterialCode = firstMat.Code,
+                MaterialName = firstMat.Name,
+                Unit = firstMat.Unit,
+                Quantity = 10,
+                UnitPrice = firstMat.Price,
+                BatchNumber = firstMat.BatchNumber,
+                TargetCellId = topCellId > 0 ? topCellId : matchCell?.CellId,
+                TargetCellLocation = cellLoc
+            });
+        }
+        else
+        {
+            newTx.Items.Add(new TransactionItem
+            {
+                MaterialId = 0,
+                MaterialCode = "",
+                MaterialName = "",
+                Unit = "",
+                Quantity = 1,
+                UnitPrice = 0,
+                BatchNumber = "",
+                TargetCellId = topCellId > 0 ? topCellId : null,
+                TargetCellLocation = ""
+            });
+        }
+    }
+
+    void RemoveItemRow(int index)
+    {
+        if (index >= 0 && index < newTx.Items.Count && newTx.Items.Count > 1)
+        {
+            newTx.Items.RemoveAt(index);
+        }
+    }
+
+    void OnMaterialRowChanged(TransactionItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int matId))
+        {
+            var mat = materials.FirstOrDefault(m => m.Id == matId);
+            if (mat != null)
+            {
+                item.MaterialId = mat.Id;
+                item.MaterialCode = mat.Code;
+                item.MaterialName = mat.Name;
+                item.Unit = mat.Unit;
+                item.UnitPrice = mat.Price;
+                item.BatchNumber = mat.BatchNumber;
+                var matchCell = cellLocations.FirstOrDefault(c => c.MaterialId == mat.Id);
+                item.TargetCellId = matchCell?.CellId;
+                item.TargetCellLocation = matchCell?.LocationString ?? (string.IsNullOrEmpty(mat.Location) ? "" : mat.Location);
+                item.SelectedRackId = 0;
+                item.SelectedShelfId = 0;
+            }
+        }
+    }
+
+    void OnCellRowChanged(TransactionItem item, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int cellId))
+        {
+            var cell = cellLocations.FirstOrDefault(c => c.CellId == cellId);
+            if (cell != null)
+            {
+                item.TargetCellId = cell.CellId;
+                item.TargetCellLocation = cell.LocationString;
+            }
+        }
+    }
+
+    void CloseForm() { showForm = false; }
+
+    async Task Approve(int id)
+    {
+        if (!Svc.IsAdmin) return;
+        await Svc.ApproveTransactionAsync(id);
+        await Reload();
+    }
+
+    async Task Submit()
+    {
+        if (!newTx.Items.Any()) return;
+
+        if (formType == "Chuyển kho")
+        {
+            newTx.Warehouse = $"{fromWarehouse} -> {toWarehouse}";
+            newTx.FromWarehouse = fromWarehouse;
+            newTx.ToWarehouse = toWarehouse;
+        }
+
+        if (string.IsNullOrEmpty(newTx.Note))
+        {
+            var firstItemName = newTx.Items.FirstOrDefault()?.MaterialName ?? "vật tư";
+            newTx.Note = $"{formType} {firstItemName} - {(string.IsNullOrEmpty(poNumber) ? "Không số PO" : poNumber)}".Trim();
+        }
+
+        await Svc.AddTransactionAsync(newTx);
+        await Reload();
+        CloseForm();
+    }
+
+    async Task Delete(Transaction t)
+    {
+        await Svc.DeleteTransactionAsync(t.Id);
+        await Reload();
+        CloseDeleteTxModal();
+    }
+
+    // Delete transaction confirm modal
+    bool showDeleteTxModal;
+    Transaction? deleteTxTarget;
+
+    void OpenDeleteTxConfirm(Transaction t) { deleteTxTarget = t; showDeleteTxModal = true; }
+    void CloseDeleteTxModal() { showDeleteTxModal = false; deleteTxTarget = null; }
+
+    void OpenPrintPreview(Transaction t)
+    {
+        selectedTxPrint = t;
+        showPrintModal = true;
+    }
+
+    void ClosePrintModal()
+    {
+        showPrintModal = false;
+        selectedTxPrint = null;
+    }
+
+    async Task ConfirmPrint()
+    {
+        if (selectedTxPrint == null) return;
+        var html = BuildSlipHtml(selectedTxPrint);
+        await JS.InvokeVoidAsync("appJs.printSlip", html);
+        ClosePrintModal();
+    }
+
+    string BuildSlipHtml(Transaction t)
+    {
+        var isImport = t.Type == "Nhập kho";
+        var isExport = t.Type == "Xuất kho";
+        var color = isImport ? "#16a34a" : (isExport ? "#ea580c" : "#2563eb");
+        var label = t.Type.ToUpper();
+        var dateStr = t.Date.ToString("dd/MM/yyyy HH:mm");
+        var totalStr = t.TotalValue.ToString("N0");
+
+        var rows = new System.Text.StringBuilder();
+        int stt = 1;
+        foreach (var item in t.Items)
+        {
+            var batch = string.IsNullOrEmpty(item.BatchNumber) ? "-" : item.BatchNumber;
+            rows.Append("<tr>" +
+                $"<td style='padding:8px 4px;text-align:center;border-bottom:1px solid #e2e8f0;color:#64748b;overflow:hidden'>{stt++}</td>" +
+                $"<td style='padding:8px 6px;border-bottom:1px solid #e2e8f0;font-weight:700;color:#0f172a;overflow:hidden;word-break:break-word'>{item.MaterialCode}</td>" +
+                $"<td style='padding:8px 8px;border-bottom:1px solid #e2e8f0;color:#1e293b;word-wrap:break-word;word-break:break-word;white-space:normal'>{item.MaterialName}</td>" +
+                $"<td style='padding:8px 4px;text-align:center;border-bottom:1px solid #e2e8f0;color:#475569;overflow:hidden;word-break:break-all'>{batch}</td>" +
+                $"<td style='padding:8px 4px;text-align:center;border-bottom:1px solid #e2e8f0;color:#475569'>{item.Unit}</td>" +
+                $"<td style='padding:8px 4px;text-align:right;font-weight:700;border-bottom:1px solid #e2e8f0;color:#0f172a'>{item.Quantity:N0}</td>" +
+                $"<td style='padding:8px 4px;text-align:right;border-bottom:1px solid #e2e8f0;color:#334155'>{item.UnitPrice:N0} ₫</td>" +
+                $"<td style='padding:8px 4px;text-align:right;font-weight:700;border-bottom:1px solid #e2e8f0;color:#0f172a'>{item.TotalValue:N0} ₫</td>" +
+            "</tr>");
+        }
+
+        return "<div style='font-family:\"Inter\", -apple-system, BlinkMacSystemFont, sans-serif;color:#0f172a;background:#fff;padding:4px'>" +
+            "<!-- Header section -->" +
+            "<div style='display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #0284c7;padding-bottom:12px;margin-bottom:16px'>" +
+                "<div>" +
+                    "<h2 style='margin:0;font-size:18px;font-weight:800;color:#0284c7;letter-spacing:-0.3px'>HỆ THỐNG AITS QUẢN LÝ KHO</h2>" +
+                    "<div style='font-size:12px;color:#475569;margin-top:3px'>Địa chỉ: Kho Tổng AITS - Điện thoại: (0963) 187 446</div>" +
+                "</div>" +
+                "<div style='text-align:right'>" +
+                    "<h3 style='margin:0;font-size:18px;font-weight:800;color:" + color + ";text-transform:uppercase'>PHIẾU " + label + "</h3>" +
+                    "<div style='font-size:12px;font-weight:700;color:#0f172a;margin-top:2px'>Số: " + t.TransactionId + "</div>" +
+                    "<div style='font-size:11px;color:#64748b;margin-top:1px'>Ngày: " + dateStr + "</div>" +
+                "</div>" +
+            "</div>" +
+
+            "<!-- Info card box -->" +
+            "<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12px;margin-bottom:18px;background:#f8fafc !important;padding:12px 14px;border-radius:8px;border:1px solid #e2e8f0;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important'>" +
+                "<div><span style='color:#475569;font-weight:600'>Kho thực hiện:</span> <span style='font-weight:700;color:#0f172a'>" + t.Warehouse + "</span></div>" +
+                "<div><span style='color:#475569;font-weight:600'>Người lập phiếu:</span> <span style='font-weight:700;color:#0f172a'>" + t.User + "</span></div>" +
+                "<div><span style='color:#475569;font-weight:600'>Trạng thái:</span> <span style='font-weight:700;color:" + color + "'>" + t.Status + "</span></div>" +
+                "<div><span style='color:#475569;font-weight:600'>Tổng loại vật tư:</span> <span style='font-weight:700;color:#0f172a'>" + t.ItemCount + " loại</span></div>" +
+                "<div style='grid-column:span 2'><span style='color:#475569;font-weight:600'>Ghi chú:</span> <span style='color:#1e293b'>" + t.Note + "</span></div>" +
+            "</div>" +
+
+            "<!-- Table -->" +
+            "<table style='width:100%;border-collapse:collapse;margin-bottom:18px;font-size:12px;table-layout:fixed'>" +
+                "<colgroup>" +
+                    "<col style='width:4%'>" +
+                    "<col style='width:11%'>" +
+                    "<col style='width:30%'>" +
+                    "<col style='width:14%'>" +
+                    "<col style='width:6%'>" +
+                    "<col style='width:9%'>" +
+                    "<col style='width:12%'>" +
+                    "<col style='width:14%'>" +
+                "</colgroup>" +
+                "<thead>" +
+                    "<tr style='background:#f1f5f9 !important;border-top:1px solid #cbd5e1;border-bottom:1px solid #cbd5e1;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important'>" +
+                        "<th style='padding:8px 4px;text-align:center;color:#334155;font-weight:700;font-size:11px'>STT</th>" +
+                        "<th style='padding:8px 6px;text-align:left;color:#334155;font-weight:700;font-size:11px'>MÃ VT</th>" +
+                        "<th style='padding:8px 8px;text-align:left;color:#334155;font-weight:700;font-size:11px'>TÊN VẬT TƯ / QUY CÁCH</th>" +
+                        "<th style='padding:8px 4px;text-align:center;color:#334155;font-weight:700;font-size:11px'>MÃ LÔ</th>" +
+                        "<th style='padding:8px 4px;text-align:center;color:#334155;font-weight:700;font-size:11px'>ĐVT</th>" +
+                        "<th style='padding:8px 4px;text-align:right;color:#334155;font-weight:700;font-size:11px'>SỐ LƯỢNG</th>" +
+                        "<th style='padding:8px 4px;text-align:right;color:#334155;font-weight:700;font-size:11px'>ĐƠN GIÁ</th>" +
+                        "<th style='padding:8px 4px;text-align:right;color:#334155;font-weight:700;font-size:11px'>THÀNH TIỀN</th>" +
+                    "</tr>" +
+                "</thead>" +
+                "<tbody>" +
+                    rows.ToString() +
+                "</tbody>" +
+            "</table>" +
+
+            "<!-- Total price row -->" +
+            "<div style='display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;border-top:2px solid #cbd5e1;padding-top:10px;margin-bottom:28px'>" +
+                "<div style='color:#0f172a'>TỔNG THÀNH TIỀN:</div>" +
+                "<div style='color:#0284c7;font-size:17px;font-weight:800'>" + totalStr + " ₫</div>" +
+            "</div>" +
+
+            "<!-- Signatures section -->" +
+            "<div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;text-align:center;font-size:12px;margin-top:20px'>" +
+                "<div><div style='font-weight:700;color:#0f172a'>Người lập phiếu</div><div style='font-size:11px;color:#64748b;margin-top:2px'>(Ký, họ tên)</div><div style='height:50px'></div><div style='font-weight:700;color:#0f172a'>" + t.User + "</div></div>" +
+                "<div><div style='font-weight:700;color:#0f172a'>Thủ kho</div><div style='font-size:11px;color:#64748b;margin-top:2px'>(Ký, họ tên)</div></div>" +
+                "<div><div style='font-weight:700;color:#0f172a'>Kế toán trưởng</div><div style='font-size:11px;color:#64748b;margin-top:2px'>(Ký, họ tên)</div></div>" +
+                "<div><div style='font-weight:700;color:#0f172a'>Người giao / nhận</div><div style='font-size:11px;color:#64748b;margin-top:2px'>(Ký, họ tên)</div></div>" +
+            "</div>" +
+        "</div>";
+    }
+}
