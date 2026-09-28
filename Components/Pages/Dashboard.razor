@@ -76,8 +76,8 @@
 }
 .dash-3d-viewport {
     flex: 1;
-    min-height: 520px;
-    height: 520px;
+    min-height: 700px;
+    height: 700px;
     border-radius: 12px;
     overflow: hidden;
     position: relative;
@@ -194,8 +194,14 @@ else
         <div class="dash-3d-header">
             <div>
                 <div class="dash-3d-title">
-                    <span>🏬 Sơ Đồ Kho 3D Tập Trung</span>
+                    <span>🏬 Sơ Đồ Kho 3D & AGV Robot</span>
                     <span style="font-size:11px;background:#0284c7;color:#fff;padding:2px 8px;border-radius:99px;font-weight:700">Real-time WebGL</span>
+                    @if (!string.IsNullOrEmpty(robotStatusText))
+                    {
+                        <span style="font-size:12px;background:rgba(14,165,233,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);padding:3px 10px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px">
+                            @robotStatusText
+                        </span>
+                    }
                 </div>
                 <div class="dash-3d-subtitle">Quản lý không gian 3D trực quan theo Khu vực → Kệ → Tầng → Ô chứa</div>
             </div>
@@ -215,9 +221,37 @@ else
         <div class="dash-3d-body">
             <!-- 3D Canvas Viewport -->
             <div class="dash-3d-viewport">
+                <div style="position:absolute;top:12px;left:14px;z-index:10;display:flex;gap:8px;align-items:center">
+                    <div style="position:relative">
+                        <input type="text"
+                               value="@searchQuery"
+                               @oninput="(e) => searchQuery = e.Value?.ToString() ?? string.Empty"
+                               placeholder="🔍 Tìm SKU hoặc Mã vị trí ô kho..."
+                               style="background:rgba(19,26,38,0.9);border:1px solid #232c3d;border-radius:8px;padding:6px 12px;font-size:12px;color:#f1f5f9;width:240px;outline:none;backdrop-filter:blur(6px)" />
+                        @if (!string.IsNullOrWhiteSpace(searchQuery))
+                        {
+                            var results = binData.Where(b => (b.MaterialName != null && b.MaterialName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)) ||
+                                                             (b.MaterialCode != null && b.MaterialCode.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)) ||
+                                                             (b.Id != null && b.Id.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))).Take(5).ToList();
+                            if (results.Any())
+                            {
+                                <div style="position:absolute;top:100%;left:0;right:0;margin-top:4px;background:#131a26;border:1px solid #232c3d;border-radius:8px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.5);z-index:20">
+                                    @foreach (var r in results)
+                                    {
+                                        <div @onclick="() => DispatchToBin(r)" style="padding:6px 10px;font-size:12px;color:#cbd5e1;cursor:pointer;display:flex;justify-content:space-between;border-bottom:1px solid #1c2432;background:#131a26" onmouseover="this.style.background='#1b2433'" onmouseout="this.style.background='#131a26'">
+                                            <span>📦 @(string.IsNullOrEmpty(r.MaterialName) ? "Ô trống" : r.MaterialName)</span>
+                                            <span style="font-family:monospace;color:#38bdf8">@r.Id</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
                 <div id="warehouse-3d-canvas" style="width:100%;height:100%"></div>
                 <div class="dash-hint">
-                    💡 <b>Thao tác:</b> Kéo chuột trái để xoay • Cuộn chuột để zoom • Kéo chuột phải để di chuyển • Click vào ô 3D để xem thông tin
+                    💡 <b>Thao tác:</b> Kéo chuột trái để xoay • Cuộn chuột để zoom • Kéo chuột phải để di chuyển • Click ô kho để điều động AGV Robot
                 </div>
             </div>
 
@@ -450,6 +484,9 @@ else
     DotNetObjectReference<Dashboard>? dotNetHelper;
     bool is3DInitialized = false;
 
+    string robotStatusText = "🤖 Robot AGV Sẵn Sàng";
+    string searchQuery = "";
+
     record MonthData(string Month, int Import, int Export);
     List<MonthData> monthlyData = [
         new("T10", 320, 180), new("T11", 410, 220), new("T12", 280, 160),
@@ -501,6 +538,31 @@ else
     {
         selectedBin = bin;
         StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnRobotStateChanged(string state, string binId)
+    {
+        if (state == "moving")
+        {
+            robotStatusText = $"🤖 Robot đang di chuyển đến vị trí {binId}...";
+        }
+        else if (state == "arrived")
+        {
+            robotStatusText = $"🎯 Robot đã đến vị trí {binId}";
+        }
+        StateHasChanged();
+    }
+
+    private async Task DispatchToBin(Bin3DModel bin)
+    {
+        selectedBin = bin;
+        searchQuery = "";
+        StateHasChanged();
+        if (is3DInitialized)
+        {
+            await JS.InvokeVoidAsync("Warehouse3D.selectBin", "warehouse-3d-canvas", bin.Id);
+        }
     }
 
     private async Task HandleDataChanged()
